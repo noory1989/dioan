@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>الديوان العام - مديرية الخدمات الفنية اللاذقية</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Tajawal:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="page-title">الديوان العام في مديرية الخدمات الفنية في اللاذقية</div>
+        <div class="date-info">
+          <span id="current-date"></span>
+        </div>
+      </div>
+      <nav class="tabs">
+        <ul>
+          <li class="tab" data-tab="outgoing"><i class="fa-solid fa-paper-plane"></i> البريد الصادر</li>
+          <li class="tab" data-tab="incoming"><i class="fa-solid fa-envelope-open-text"></i> البريد الوارد</li>
+          <li class="tab" data-tab="reception"><i class="fa-solid fa-headset"></i> الاستقبال والشكاوي</li>
+          <li class="tab" data-tab="search"><i class="fa-solid fa-magnifying-glass"></i> البحث</li>
+          <li class="tab" data-tab="circles"><i class="fa-solid fa-building"></i> الدوائر</li>
+          <li class="tab" data-tab="users"><i class="fa-solid fa-users-gear"></i> المستخدمون والصلاحيات</li>
+          <li class="tab" data-tab="settings"><i class="fa-solid fa-gear"></i> الإعدادات</li>
+        </ul>
+      </nav>
+    </header>
+    <main class="main-bg">
+      <section id="dashboardStats" class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon"><i class="fa-solid fa-inbox"></i></div>
+          <div class="stat-number" id="statIncoming">0</div>
+          <div class="stat-title">عدد الكتب الواردة</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon"><i class="fa-solid fa-paper-plane-top"></i></div>
+          <div class="stat-number" id="statOutgoing">0</div>
+          <div class="stat-title">عدد الكتب الصادرة</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon"><i class="fa-solid fa-headset"></i></div>
+          <div class="stat-number" id="statReception">0</div>
+          <div class="stat-title">عدد الاستقبال والشكاوى</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon"><i class="fa-solid fa-chart-simple"></i></div>
+          <div class="stat-number" id="statTotal">0</div>
+          <div class="stat-title">إجمالي السجلات في النظام</div>
+        </div>
+      </section>
+
+      <!-- Outgoing Tab Content (hidden until tab click) -->
+      <section class="tab-contents">
+        <div id="outgoing" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">نظام الأرشفة والتوثيق</p>
+              <h2>البريد الصادر</h2>
+              <p class="page-description">واجهة كاملة لتسجيل الكتب الصادرة وإدارتها بطريقة عصرية ومنظمة.</p>
+            </div>
+            <div class="page-actions">
+              <button id="resetFormBtn" class="btn">مسح الحقول</button>
+              <button type="button" id="outgoingImportBtn" class="btn secondary">استيراد Excel</button>
+              <button type="button" id="outgoingExportBtn" class="btn secondary">تصدير Excel</button>
+              <button type="button" id="outgoingDeleteSelectedBtn" class="btn secondary"><i class="fa-solid fa-trash-can"></i> حذف المحدد</button>
+              <div class="search-field">
+                <input type="search" id="searchOutgoing" placeholder="ابحث في الكتب الصادرة...">
+              </div>
+              <input type="file" id="outgoingImportInput" accept=".xlsx,.xls" hidden>
+            </div>
+          </div>
+
+          <div class="outgoing-layout">
+            <div class="card outgoing-form-card">
+              <div class="section-title">إضافة / تعديل كتاب صادر</div>
+              <form id="outgoingForm">
+                <div class="form-with-attachments">
+                  <div class="attachments-preview">
+                    <label>المرفقات</label>
+                    <div class="attachments-actions">
+                      <button type="button" id="outgoingAddAttachment" class="btn secondary">إضافة مرفق جديد</button>
+                      <input type="file" id="outgoingAttachmentInput" accept="*/*" hidden>
+                    </div>
+                    <div id="outgoingPreview" class="preview-list"></div>
+                  </div>
+                  <div class="fields-container">
+                    <div class="form-grid">
+                      <div class="form-row">
+                        <label>الرقم المتسلسل</label>
+                        <input type="number" id="fieldSerial" required />
+                      </div>
+                      <div class="form-row">
+                        <label>التاريخ</label>
+                        <input type="date" id="fieldDate" required />
+                      </div>
+                      <div class="form-row full-width">
+                        <label>الجهة الصادر إليها</label>
+                        <input type="text" id="fieldRecipient" required />
+                      </div>
+                      <div class="form-row full-width">
+                        <label>المضمون</label>
+                        <textarea id="fieldSubject" rows="3"></textarea>
+                      </div>
+                      <div class="form-row">
+                        <label>الرقم الوارد القديم</label>
+                        <input type="text" id="fieldOldInNo" />
+                      </div>
+                      <div class="form-row">
+                        <label>تاريخ الوارد القديم</label>
+                        <input type="date" id="fieldOldInDate" />
+                      </div>
+                      <div class="form-row">
+                        <label>التحويل</label>
+                        <input type="text" id="fieldTransfer" />
+                      </div>
+                      <div class="form-row">
+                        <label>الرقم الوارد الجديد</label>
+                        <input type="text" id="fieldNewInNo" />
+                      </div>
+                      <div class="form-row">
+                        <label>تاريخ الوارد الجديد</label>
+                        <input type="date" id="fieldNewInDate" />
+                      </div>
+                    </div>
+                    <div class="form-actions action-right">
+                      <button type="button" id="cancelBtn" class="btn">إلغاء</button>
+                      <button type="submit" class="btn primary">حفظ الكتاب</button>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            <div class="card outgoing-table-card">
+              <div class="section-title">سجل الكتب الصادرة</div>
+              <div class="table-wrap">
+                <table id="outgoingTable" class="data-table">
+                  <thead>
+                    <tr>
+                      <th class="row-select"><input type="checkbox" id="selectAllOutgoing" aria-label="تحديد الكل" /></th>
+                      <th>الرقم المتسلسل</th>
+                      <th>التاريخ</th>
+                      <th>الجهة الصادر إليها</th>
+                      <th>المضمون</th>
+                      <th>الرقم الوارد القديم</th>
+                      <th>تاريخ الوارد القديم</th>
+                      <th>التحويل</th>
+                      <th>الرقم الوارد الجديد</th>
+                      <th>تاريخ الوارد الجديد</th>
+                      <th>المرفقات</th>
+                      <th>إجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- rows added dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="incoming" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">نظام الأرشفة والتوثيق</p>
+              <h2>البريد الوارد</h2>
+              <p class="page-description">واجهة كاملة لتسجيل الكتب الواردة وإدارتها بشكل احترافي مع تفاصيل متكاملة.</p>
+            </div>
+            <div class="page-actions">
+              <button id="resetIncomingBtn" class="btn">مسح الحقول</button>
+              <button type="button" id="incomingImportBtn" class="btn secondary">استيراد Excel</button>
+              <button type="button" id="incomingExportBtn" class="btn secondary">تصدير Excel</button>
+              <button type="button" id="incomingDeleteSelectedBtn" class="btn secondary"><i class="fa-solid fa-trash-can"></i> حذف المحدد</button>
+              <div class="search-field">
+                <input type="search" id="searchIncoming" placeholder="ابحث في الكتب الواردة...">
+              </div>
+              <input type="file" id="incomingImportInput" accept=".xlsx,.xls" hidden>
+            </div>
+          </div>
+
+          <div class="outgoing-layout">
+            <div class="card outgoing-form-card">
+              <div class="section-title">إضافة / تعديل كتاب وارد</div>
+              <form id="incomingForm">
+                <div class="form-with-attachments">
+                  <div class="attachments-preview">
+                    <label>المرفقات</label>
+                    <div class="attachments-actions">
+                      <button type="button" id="incomingAddAttachment" class="btn secondary">إضافة مرفق جديد</button>
+                      <input type="file" id="incomingAttachmentInput" accept="*/*" hidden>
+                    </div>
+                    <div id="incomingPreview" class="preview-list"></div>
+                  </div>
+                  <div class="fields-container">
+                    <div class="form-grid">
+                      <div class="form-row">
+                        <label>مكان الورود</label>
+                        <input type="text" id="inFieldArrivePlace" required />
+                      </div>
+                      <div class="form-row">
+                        <label>رقم الورود</label>
+                        <input type="text" id="inFieldArriveNo" required />
+                      </div>
+                      <div class="form-row">
+                        <label>تاريخ الورود</label>
+                        <input type="date" id="inFieldArriveDate" required />
+                      </div>
+                      <div class="form-row">
+                        <label>رقم الوارد</label>
+                        <input type="text" id="inFieldNo" required />
+                      </div>
+                      <div class="form-row">
+                        <label>تاريخ الوارد</label>
+                        <input type="date" id="inFieldDate" required />
+                      </div>
+                      <div class="form-row">
+                        <label>اسم صاحب الطلب</label>
+                        <input type="text" id="inFieldRequesterName" />
+                      </div>
+                      <div class="form-row">
+                        <label>نوع الطلب</label>
+                        <input type="text" id="inFieldRequestType" />
+                      </div>
+                      <div class="form-row full-width">
+                        <label>المضمون</label>
+                        <textarea id="inFieldSubject" rows="3"></textarea>
+                      </div>
+                      <div class="form-row">
+                        <label>رقم الهاتف</label>
+                        <input type="text" id="inFieldPhone" />
+                      </div>
+                      <div class="form-row">
+                        <label>التحويل إلى</label>
+                        <input type="text" id="inFieldTransferTo" />
+                      </div>
+                      <div class="form-row">
+                        <label>رقم الصادر</label>
+                        <input type="text" id="inFieldOutNo" />
+                      </div>
+                      <div class="form-row">
+                        <label>الجهة المرسل إليها</label>
+                        <input type="text" id="inFieldSender" />
+                      </div>
+                      <div class="form-row full-width">
+                        <label>الملاحظات</label>
+                        <textarea id="inFieldNotes" rows="3"></textarea>
+                      </div>
+                    </div>
+                    <div class="form-actions action-right">
+                      <button type="button" id="cancelIncomingBtn" class="btn">إلغاء</button>
+                      <button type="submit" class="btn primary">حفظ الكتاب الوارد</button>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            <div class="card outgoing-table-card">
+              <div class="section-title">سجل الكتب الواردة</div>
+              <div class="table-wrap">
+                <table id="incomingTable" class="data-table">
+                  <thead>
+                    <tr>
+                      <th class="row-select"><input type="checkbox" id="selectAllIncoming" aria-label="تحديد الكل" /></th>
+                      <th>مكان الورود</th>
+                      <th>رقم الورود</th>
+                      <th>تاريخ الورود</th>
+                      <th>رقم الوارد</th>
+                      <th>تاريخ الوارد</th>
+                      <th>اسم صاحب الطلب</th>
+                      <th>نوع الطلب</th>
+                      <th>المضمون</th>
+                      <th>رقم الهاتف</th>
+                      <th>التحويل إلى</th>
+                      <th>رقم الصادر</th>
+                      <th>الجهة المرسل إليها</th>
+                      <th>الملاحظات</th>
+                      <th>المرفقات</th>
+                      <th>إجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- rows added dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="reception" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">نظام الأرشفة والتوثيق</p>
+              <h2>الاستقبال والشكاوي</h2>
+              <p class="page-description">واجهة كاملة لتسجيل قضايا الاستقبال والشكاوى وإدارتها بشكل متكامل.</p>
+            </div>
+            <div class="page-actions">
+              <button id="resetReceptionBtn" class="btn">مسح الحقول</button>
+              <button type="button" id="receptionImportBtn" class="btn secondary">استيراد Excel</button>
+              <button type="button" id="receptionExportBtn" class="btn secondary">تصدير Excel</button>
+              <button type="button" id="receptionDeleteSelectedBtn" class="btn secondary"><i class="fa-solid fa-trash-can"></i> حذف المحدد</button>
+              <div class="search-field">
+                <input type="search" id="searchReception" placeholder="ابحث في الاستقبال والشكاوى...">
+              </div>
+              <input type="file" id="receptionImportInput" accept=".xlsx,.xls" hidden>
+            </div>
+          </div>
+
+          <div class="outgoing-layout">
+            <div class="card outgoing-form-card">
+              <div class="section-title">إضافة / تعديل سجل استقبال وشكاوى</div>
+              <form id="receptionForm">
+                <div class="form-with-attachments">
+                  <div class="attachments-preview">
+                    <label>المرفقات</label>
+                    <div class="attachments-actions">
+                      <button type="button" id="recAddAttachment" class="btn secondary">إضافة مرفق جديد</button>
+                      <input type="file" id="recAttachmentInput" accept="*/*" hidden>
+                    </div>
+                    <div id="recPreview" class="preview-list"></div>
+                  </div>
+                  <div class="fields-container">
+                    <div class="form-grid">
+                      <div class="form-row">
+                        <label>الاسم الثلاثي</label>
+                        <input type="text" id="recFieldName" required />
+                      </div>
+                      <div class="form-row">
+                        <label>الفئة</label>
+                        <input type="text" id="recFieldCategory" />
+                      </div>
+                      <div class="form-row">
+                        <label>المؤهل العلمي</label>
+                        <input type="text" id="recFieldQualification" />
+                      </div>
+                      <div class="form-row">
+                        <label>الطلب</label>
+                        <input type="text" id="recFieldRequest" />
+                      </div>
+                      <div class="form-row full-width">
+                        <label>مضمون الطلب</label>
+                        <textarea id="recFieldSubject" rows="3"></textarea>
+                      </div>
+                      <div class="form-row">
+                        <label>تاريخ تقديم الطلب</label>
+                        <input type="date" id="recFieldSubmissionDate" />
+                      </div>
+                      <div class="form-row">
+                        <label>رقم الطلب</label>
+                        <input type="text" id="recFieldRequestNo" />
+                      </div>
+                      <div class="form-row full-width">
+                        <label>العنوان</label>
+                        <input type="text" id="recFieldAddress" />
+                      </div>
+                      <div class="form-row">
+                        <label>رقم الاتصال</label>
+                        <input type="text" id="recFieldPhone" />
+                      </div>
+                      <div class="form-row">
+                        <label>الرقم الوطني</label>
+                        <input type="text" id="recFieldNationalId" />
+                      </div>
+                      <div class="form-row">
+                        <label>النتيجة 1</label>
+                        <input type="text" id="recFieldResult1" />
+                      </div>
+                      <div class="form-row">
+                        <label>النتيجة 2</label>
+                        <input type="text" id="recFieldResult2" />
+                      </div>
+                      <div class="form-row">
+                        <label>النتيجة 3</label>
+                        <input type="text" id="recFieldResult3" />
+                      </div>
+                      <div class="form-row">
+                        <label>النتيجة 4</label>
+                        <input type="text" id="recFieldResult4" />
+                      </div>
+                      <div class="form-row full-width">
+                        <label>الملاحظات</label>
+                        <textarea id="recFieldNotes" rows="3"></textarea>
+                      </div>
+                      <div class="form-row">
+                        <label>صادر 1</label>
+                        <input type="text" id="recFieldOut1" />
+                      </div>
+                      <div class="form-row">
+                        <label>وارد 2</label>
+                        <input type="text" id="recFieldIn2" />
+                      </div>
+                      <div class="form-row">
+                        <label>صادر 2</label>
+                        <input type="text" id="recFieldOut2" />
+                      </div>
+                      <div class="form-row">
+                        <label>وارد 3</label>
+                        <input type="text" id="recFieldIn3" />
+                      </div>
+                      <div class="form-row">
+                        <label>صادر 3</label>
+                        <input type="text" id="recFieldOut3" />
+                      </div>
+                    </div>
+                    <div class="form-actions action-right">
+                      <button type="button" id="cancelReceptionBtn" class="btn">إلغاء</button>
+                      <button type="submit" class="btn primary">حفظ الاستقبال</button>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            <div class="card outgoing-table-card">
+              <div class="section-title">سجل الاستقبال والشكاوى</div>
+              <div class="table-wrap">
+                <table id="receptionTable" class="data-table">
+                  <thead>
+                    <tr>
+                      <th class="row-select"><input type="checkbox" id="selectAllReception" aria-label="تحديد الكل" /></th>
+                      <th>الاسم الثلاثي</th>
+                      <th>الفئة</th>
+                      <th>المؤهل العلمي</th>
+                      <th>الطلب</th>
+                      <th>مضمون الطلب</th>
+                      <th>تاريخ تقديم الطلب</th>
+                      <th>رقم الطلب</th>
+                      <th>العنوان</th>
+                      <th>رقم الاتصال</th>
+                      <th>الرقم الوطني</th>
+                      <th>النتيجة 1</th>
+                      <th>النتيجة 2</th>
+                      <th>النتيجة 3</th>
+                      <th>النتيجة 4</th>
+                      <th>الملاحظات</th>
+                      <th>صادر 1</th>
+                      <th>وارد 2</th>
+                      <th>صادر 2</th>
+                      <th>وارد 3</th>
+                      <th>صادر 3</th>
+                      <th>المرفقات</th>
+                      <th>إجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- rows added dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="search" class="tab-content" style="display:none"></div>
+        <div id="search" class="tab-content" style="display:none"></div>
+        <div id="circles" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">قوائم الدوائر</p>
+              <h2>الدوائر في المديرية</h2>
+              <p class="page-description">اختر دائرة لفتح واجهة خاصة بها ومشاهدة إشعارات البريد الوارد.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div id="circlesContainer" class="circles-grid"></div>
+          </div>
+        </div>
+        <div id="users" class="tab-content" style="display:none"></div>
+        <div id="settings" class="tab-content" style="display:none"></div>
+      </section>
+    </main>
+    
+    <div id="circleModal" class="modal hidden">
+      <div class="modal-window">
+        <div class="modal-header">
+          <h3 id="circleModalTitle">الدائرة</h3>
+          <button id="closeCircleModal" class="btn">إغلاق</button>
+        </div>
+        <div id="circleModalBody" class="modal-body">
+          <div class="circle-notifications">
+            <div class="circle-notif-header">إشعارات البريد الوارد</div>
+            <div id="circleNotifCount" class="circle-badge">0</div>
+          </div>
+          <div id="circleNotifList" class="notif-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="attachmentsModal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>المرفقات</h3>
+          <button type="button" id="closeAttachmentsModal" class="btn">إغلاق</button>
+        </div>
+        <div id="attachmentsModalBody" class="attachments-modal-body"></div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+  </html>
