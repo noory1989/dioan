@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ar">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>نموذج تحويل السجلات</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="container">
+    <h1>نظام تحويل سجلات - مثال مبسّط</h1>
+
+    <section class="panel">
+      <h2>السجلات المتاحة</h2>
+      <div id="records" class="list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>دوائر الاستقبال</h2>
+      <div id="circles" class="list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>تفاصيل الدائرة</h2>
+      <div id="circle-detail">
+        <h3 id="circle-title">اختر دائرة</h3>
+        <div class="tabs">
+          <button id="tab-mail" class="tab active">سجل البريد</button>
+          <button id="tab-dossier" class="tab">سجل الأضابير</button>
+        </div>
+        <div id="mail-list" class="list"></div>
+        <div id="dossier-list" class="list hidden"></div>
+      </div>
+    </section>
+
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

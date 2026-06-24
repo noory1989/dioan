@@ -13,9 +13,13 @@
   <body>
     <header class="topbar">
       <div class="topbar-inner">
-        <div class="page-title">الديوان العام في مديرية الخدمات الفنية في اللاذقية</div>
-        <div class="date-info">
-          <span id="current-date"></span>
+        <div class="topbar-left">
+          <div class="page-title">الديوان العام في مديرية الخدمات الفنية في اللاذقية</div>
+        </div>
+        <div class="topbar-right">
+          <div id="userInfo" class="user-info" style="display: none;"><i class="fa-solid fa-user-check"></i><span id="loggedInUser"></span><button id="logoutBtn" class="btn logout-btn"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</button></div>
+          <div style="display:inline-block;margin-left:8px"><button id="hardRefreshBtn" class="btn secondary" title="تحديث الواجهة دون تسجيل خروج">تحديث الواجهة</button></div>
+          <div class="date-info"><span id="current-date"></span></div>
         </div>
       </div>
       <nav class="tabs">
@@ -24,6 +28,8 @@
           <li class="tab" data-tab="incoming"><i class="fa-solid fa-envelope-open-text"></i> البريد الوارد</li>
           <li class="tab" data-tab="reception"><i class="fa-solid fa-headset"></i> الاستقبال والشكاوي</li>
           <li class="tab" data-tab="search"><i class="fa-solid fa-magnifying-glass"></i> البحث</li>
+          <li class="tab" data-tab="archives"><i class="fa-solid fa-box-archive"></i> الأضابير</li>
+          <li class="tab" data-tab="overdueDossiers"><i class="fa-solid fa-clock-exclamation"></i> الأضابير المتأخرة</li>
           <li class="tab" data-tab="circles"><i class="fa-solid fa-building"></i> الدوائر</li>
           <li class="tab" data-tab="users"><i class="fa-solid fa-users-gear"></i> المستخدمون والصلاحيات</li>
           <li class="tab" data-tab="settings"><i class="fa-solid fa-gear"></i> الإعدادات</li>
@@ -74,6 +80,7 @@
               <div class="search-field">
                 <input type="search" id="searchOutgoing" placeholder="ابحث في الكتب الصادرة...">
               </div>
+              <label class="sort-toggle"><input type="checkbox" id="sortOutgoingLatest" /> عرض حسب الأحدث</label>
               <input type="file" id="outgoingImportInput" accept=".xlsx,.xls" hidden>
             </div>
           </div>
@@ -168,6 +175,36 @@
           </div>
         </div>
 
+        <div id="overdueDossiers" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">الأضابير المتأخرة</p>
+              <h2>قائمة الأضابير المتأخرة</h2>
+              <p class="page-description">عرض الأضابير التي تجاوزت المهلة المحددة لكل دائرة.</p>
+            </div>
+            <div class="page-actions">
+              <button id="refreshOverdueBtn" class="btn secondary">تحديث</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="table-wrap">
+              <table id="overdueTable" class="data-table">
+                <thead>
+                  <tr>
+                    <th>اسم الأضبارة</th>
+                    <th>الدائرة الحالية</th>
+                    <th>تاريخ التأخر</th>
+                    <th>إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- rows populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div id="incoming" class="tab-content" style="display:none">
           <div class="page-heading">
             <div>
@@ -183,6 +220,7 @@
               <div class="search-field">
                 <input type="search" id="searchIncoming" placeholder="ابحث في الكتب الواردة...">
               </div>
+              <label class="sort-toggle"><input type="checkbox" id="sortIncomingLatest" /> عرض حسب الأحدث</label>
               <input type="file" id="incomingImportInput" accept=".xlsx,.xls" hidden>
             </div>
           </div>
@@ -311,6 +349,7 @@
               <div class="search-field">
                 <input type="search" id="searchReception" placeholder="ابحث في الاستقبال والشكاوى...">
               </div>
+                <label class="sort-toggle"><input type="checkbox" id="sortReceptionLatest" /> عرض حسب الأحدث</label>
               <input type="file" id="receptionImportInput" accept=".xlsx,.xls" hidden>
             </div>
           </div>
@@ -459,8 +498,21 @@
             </div>
           </div>
         </div>
-        <div id="search" class="tab-content" style="display:none"></div>
-        <div id="search" class="tab-content" style="display:none"></div>
+        <div id="search" class="tab-content" style="display:none">
+          <div class="search-full">
+            <div class="search-header">
+              <h2>بحث عام في السجلات</h2>
+              <div class="search-controls">
+                <input type="search" id="globalSearchQuery" placeholder="اكتب كلمة مفتاحية أو رقم للبحث..." />
+                <select id="globalSearchField">
+                  <option value="all">كل الحقول</option>
+                </select>
+                <button id="globalSearchClear" class="btn">مسح</button>
+              </div>
+            </div>
+            <div id="globalSearchResults" class="search-results"></div>
+          </div>
+        </div>
         <div id="circles" class="tab-content" style="display:none">
           <div class="page-heading">
             <div>
@@ -473,8 +525,430 @@
             <div id="circlesContainer" class="circles-grid"></div>
           </div>
         </div>
-        <div id="users" class="tab-content" style="display:none"></div>
-        <div id="settings" class="tab-content" style="display:none"></div>
+        <div id="archives" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">الأرشفة المركزية</p>
+              <h2>الأضابير</h2>
+            </div>
+          </div>
+
+          <div class="archives-container">
+            <button id="archivesBackBtn" class="btn back-btn" title="رجوع">رجوع</button>
+            <!-- Top nav for archives: appears when any archive view is open -->
+            <div id="archivesTopNav" class="archives-top-nav" style="display:none; margin: 12px 0;">
+              <button id="archiveTopNewBtn" class="btn small">اضبارة جديدة</button>
+              <button id="archiveTopListBtn" class="btn small">سجل الأضابير</button>
+              <button id="archiveTopLateBtn" class="btn small">الأضابير المتأخرة</button>
+            </div>
+            <div class="archives-cards">
+              <div id="archiveNewCard" class="archive-card">اضبارة جديدة</div>
+              <div id="archiveLateCard" class="archive-card">الأضابير المتأخرة</div>
+              <div id="archiveListCard" class="archive-card">سجل الأضابير</div>
+            </div>
+            
+            <div id="archiveNewView" class="archives-list" style="display:none">
+              <div class="page-heading">
+                <div>
+                  <p class="eyebrow">الأرشفة</p>
+                  <h2>اضبارة جديدة</h2>
+                  <p class="page-description">نموذج إنشاء أضبارة جديدة</p>
+                </div>
+                <div class="page-actions">
+                  <button id="archiveNewBackBtn" class="btn">رجوع</button>
+                </div>
+              </div>
+
+              <form id="archiveForm" class="card" style="padding:18px;display:grid;gap:18px;">
+                <!-- Section 1: Project basic (معلومات الأضبارة) -->
+                <div class="card" style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <h3 style="margin:0">معلومات الأضبارة</h3>
+                    <div></div>
+                  </div>
+                  <!-- New layout: project name centered, date left, status right on same level -->
+                  <div class="archive-info-section" style="width:100%">
+                    <label for="archiveProjectName" class="archive-project-label">اسم المشروع</label>
+                    <input id="archiveProjectName" class="archive-project-name" type="text" placeholder="اكتب اسم المشروع هنا" required />
+
+                    <div class="archive-info-row">
+                      <div class="archive-info-left">
+                        <label for="archiveCreateDate" class="small-label">تاريخ الإنشاء:</label>
+                        <input id="archiveCreateDate" class="archive-create-date" type="date" required />
+                      </div>
+
+                      <div class="archive-info-right">
+                        <label for="archiveStatus" class="small-label">حالة الأضبارة:</label>
+                        <select id="archiveStatus" class="archive-status-select">
+                          <option value="قيد التفعيل">قيد التفعيل</option>
+                          <option value="مغلقة">مغلقة</option>
+                          <option value="مؤرشفة">مؤرشفة</option>
+                        </select>
+                        <!-- Keep readonly display field for compatibility with existing JS that may read it -->
+                        <input id="archiveStatusDisplay" type="text" readonly style="margin-top:8px;display:none" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Section 2: الدراسات -->
+                <div class="card" style="display:grid;grid-template-columns:1fr 320px;gap:12px;padding:12px;align-items:start;">
+                  <div style="display:flex;flex-direction:column;gap:10px;">
+                    <h3 style="margin:0">الدراسات</h3>
+                    <label>الكلفة التقديرية (ل.س)</label>
+                    <div class="cost-input">
+                      <input id="studies_cost" type="number" step="0.01" style="padding:8px;border-radius:6px;border:1px solid #e6e9ef" />
+                      <span class="cost-unit">ل.س.ج</span>
+                    </div>
+                    <label>الفريق الدارس</label>
+                    <input id="studies_team" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                    <label>ملاحظات</label>
+                    <textarea id="studies_notes" rows="3" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef"></textarea>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <div>
+                        <label>الرقم الصادر من الدراسات</label>
+                        <input id="studies_outNo" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div>
+                        <label>تاريخ الصدور من الدراسات</label>
+                        <input id="studies_outDate" type="date" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                      <div style="flex:1">
+                        <label>المدة الزمنية المتوقعة</label>
+                        <input id="studies_expectedValue" type="number" min="0" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div style="width:140px">
+                        <label>الوحدة</label>
+                        <select id="studies_expectedUnit" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef">
+                          <option value="minutes">دقيقة</option>
+                          <option value="hours">ساعة</option>
+                          <option value="days" selected>يوم</option>
+                          <option value="weeks">أسبوع</option>
+                          <option value="months">شهر</option>
+                        </select>
+                      </div>
+                    </div>
+                    <label>مدخل البيانات</label>
+                    <input id="studies_enteredBy" type="text" readonly style="padding:10px;border-radius:8px;border:1px solid #e6e9ef;background:#f3f4f6" />
+                  </div>
+                  <div>
+                    <h4>مرفقات الدراسات</h4>
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                      <button type="button" id="studiesAddAttach" class="btn small">إضافة مرفق</button>
+                      <button type="button" id="studiesDelAttach" class="btn small danger">حذف المحدد</button>
+                      <button type="button" id="studiesViewAttach" class="btn small">عرض المرفق</button>
+                      <input id="studiesAttachInput" type="file" accept="*/*" multiple hidden />
+                    </div>
+                    <div id="studiesPreview" class="preview-list" style="max-height:240px;overflow:auto"></div>
+                  </div>
+                </div>
+
+                <!-- Section 3: ديوان الشؤون الفنية -->
+                <div class="card" style="display:grid;grid-template-columns:1fr 320px;gap:12px;padding:12px;">
+                  <div style="display:flex;flex-direction:column;gap:10px;">
+                    <h3 style="margin:0">ديوان الشؤون الفنية</h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <div>
+                        <label>تاريخ الورود الى الشؤون الفنية</label>
+                        <input id="tech_inDate" type="date" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div>
+                        <label>رقم الورود الى الشؤون الفنية</label>
+                        <input id="tech_inNo" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                    </div>
+                    <label>ملاحظات</label>
+                    <textarea id="tech_notes" rows="3" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef"></textarea>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <div>
+                        <label>تاريخ الصدور من الشؤون الفنية</label>
+                        <input id="tech_outDate" type="date" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div>
+                        <label>رقم الصدور من الشؤون الفنية</label>
+                        <input id="tech_outNo" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                      <div style="flex:1">
+                        <label>المدة الزمنية المتوقعة</label>
+                        <input id="tech_expectedValue" type="number" min="0" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div style="width:140px">
+                        <label>الوحدة</label>
+                        <select id="tech_expectedUnit" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef">
+                          <option value="minutes">دقيقة</option>
+                          <option value="hours">ساعة</option>
+                          <option value="days" selected>يوم</option>
+                          <option value="weeks">أسبوع</option>
+                          <option value="months">شهر</option>
+                        </select>
+                      </div>
+                    </div>
+                    <label>مدخل البيانات</label>
+                    <input id="tech_enteredBy" type="text" readonly style="padding:10px;border-radius:8px;border:1px solid #e6e9ef;background:#f3f4f6" />
+                  </div>
+                  <div>
+                    <h4>مرفقات الشؤون الفنية</h4>
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                       <button type="button" id="techAddAttach" class="btn small">إضافة مرفق</button>
+                       <button type="button" id="techDelAttach" class="btn small danger">حذف المحدد</button>
+                       <button type="button" id="techViewAttach" class="btn small">عرض المرفق</button>
+                      <input id="techAttachInput" type="file" accept="*/*" multiple hidden />
+                    </div>
+                    <div id="techPreview" class="preview-list" style="max-height:240px;overflow:auto"></div>
+                  </div>
+                </div>
+
+                <!-- Section 4: الديوان العام -->
+                <div class="card" style="display:grid;grid-template-columns:1fr 320px;gap:12px;padding:12px;">
+                  <div style="display:flex;flex-direction:column;gap:10px;">
+                    <h3 style="margin:0">الديوان العام</h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <div>
+                        <label>تاريخ الورود الى الديوان العام</label>
+                        <input id="gov_inDate" type="date" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div>
+                        <label>رقم الورود الى الديوان العام</label>
+                        <input id="gov_inNo" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                    </div>
+                    <label>ملاحظات</label>
+                    <textarea id="gov_notes" rows="3" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef"></textarea>
+                    <div style="display:flex;gap:8px;align-items:center">
+                      <div style="flex:1">
+                        <label>المدة الزمنية المتوقعة</label>
+                        <input id="gov_expectedValue" type="number" min="0" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div style="width:140px">
+                        <label>الوحدة</label>
+                        <select id="gov_expectedUnit" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef">
+                          <option value="minutes">دقيقة</option>
+                          <option value="hours">ساعة</option>
+                          <option value="days" selected>يوم</option>
+                          <option value="weeks">أسبوع</option>
+                          <option value="months">شهر</option>
+                        </select>
+                      </div>
+                    </div>
+                    <label>مدخل البيانات</label>
+                    <input id="gov_enteredBy" type="text" readonly style="padding:10px;border-radius:8px;border:1px solid #e6e9ef;background:#f3f4f6" />
+                  </div>
+                  <div>
+                    <h4>مرفقات الديوان العام</h4>
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                       <button type="button" id="govAddAttach" class="btn small">إضافة مرفق</button>
+                       <button type="button" id="govDelAttach" class="btn small danger">حذف المحدد</button>
+                       <button type="button" id="govViewAttach" class="btn small">عرض المرفق</button>
+                      <input id="govAttachInput" type="file" accept="*/*" multiple hidden />
+                    </div>
+                    <div id="govPreview" class="preview-list" style="max-height:240px;overflow:auto"></div>
+                  </div>
+                </div>
+
+                <!-- Section 5: الدائرة القانونية -->
+                <div class="card" style="display:grid;grid-template-columns:1fr 320px;gap:12px;padding:12px;">
+                  <div style="display:flex;flex-direction:column;gap:10px;">
+                    <h3 style="margin:0">الدائرة القانونية</h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <div>
+                        <label>تاريخ الورود الى الدائرة القانونية</label>
+                        <input id="legal_inDate" type="date" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div>
+                        <label>رقم الورود الى الدائرة القانونية</label>
+                        <input id="legal_inNo" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                    </div>
+                    <label>ملاحظات</label>
+                    <textarea id="legal_notes" rows="3" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef"></textarea>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <div>
+                        <label>تاريخ الصدور من الدائرة القانونية</label>
+                        <input id="legal_outDate" type="date" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div>
+                        <label>رقم الصدور من الدائرة القانونية</label>
+                        <input id="legal_outNo" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                      <div style="flex:1">
+                        <label>المدة الزمنية المتوقعة</label>
+                        <input id="legal_expectedValue" type="number" min="0" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div style="width:140px">
+                        <label>الوحدة</label>
+                        <select id="legal_expectedUnit" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ef">
+                          <option value="minutes">دقيقة</option>
+                          <option value="hours">ساعة</option>
+                          <option value="days" selected>يوم</option>
+                          <option value="weeks">أسبوع</option>
+                          <option value="months">شهر</option>
+                        </select>
+                      </div>
+                    </div>
+                    <label>مدخل البيانات</label>
+                    <input id="legal_enteredBy" type="text" readonly style="padding:10px;border-radius:8px;border:1px solid #e6e9ef;background:#f3f4f6" />
+                  </div>
+                  <div>
+                    <h4>مرفقات الدائرة القانونية</h4>
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                       <button type="button" id="legalAddAttach" class="btn small">إضافة مرفق</button>
+                       <button type="button" id="legalDelAttach" class="btn small danger">حذف المحدد</button>
+                       <button type="button" id="legalViewAttach" class="btn small">عرض المرفق</button>
+                      <input id="legalAttachInput" type="file" accept="*/*" multiple hidden />
+                    </div>
+                    <div id="legalPreview" class="preview-list" style="max-height:240px;overflow:auto"></div>
+                  </div>
+                </div>
+
+                <!-- Section 6: الديوان العام (متكرر حسب المطلوب) -->
+                <div class="card" style="display:grid;grid-template-columns:1fr 320px;gap:12px;padding:12px;">
+                  <div style="display:flex;flex-direction:column;gap:10px;">
+                    <h3 style="margin:0">الديوان العام</h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <div>
+                        <label>تاريخ الصدور من الديوان العام</label>
+                        <input id="gov2_outDate" type="date" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div>
+                        <label>رقم الصدور من الديوان العام</label>
+                        <input id="gov2_outNo" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                    </div>
+                    <label>ملاحظات</label>
+                    <textarea id="gov2_notes" rows="3" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef"></textarea>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                      <div>
+                        <label>تاريخ الورود الى الديوان العام</label>
+                        <input id="gov2_inDate" type="date" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                      <div>
+                        <label>رقم الورود الى الديوان العام</label>
+                        <input id="gov2_inNo" type="text" style="padding:10px;border-radius:8px;border:1px solid #e6e9ef" />
+                      </div>
+                    </div>
+                    <label>مدخل البيانات</label>
+                    <input id="gov2_enteredBy" type="text" readonly style="padding:10px;border-radius:8px;border:1px solid #e6e9ef;background:#f3f4f6" />
+                  </div>
+                  <div>
+                    <h4>مرفقات الديوان العام</h4>
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                       <button type="button" id="gov2AddAttach" class="btn small">إضافة مرفق</button>
+                       <button type="button" id="gov2DelAttach" class="btn small danger">حذف المحدد</button>
+                       <button type="button" id="gov2ViewAttach" class="btn small">عرض المرفق</button>
+                      <input id="gov2AttachInput" type="file" accept="*/*" multiple hidden />
+                    </div>
+                    <div id="gov2Preview" class="preview-list" style="max-height:240px;overflow:auto"></div>
+                  </div>
+                </div>
+
+                <!-- Actions -->
+                <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:8px">
+                  <button id="saveArchiveBtn" type="submit" class="btn primary">حفظ الأضبارة</button>
+                  <button id="printArchiveBtn" type="button" class="btn">طباعة PDF</button>
+                  <button id="archiveFormBackBtn" type="button" class="btn">رجوع</button>
+                </div>
+              </form>
+            </div>
+
+            <div id="archivesListView" class="archives-list" style="display:none">
+              <div class="archives-list-header">
+                <div class="archives-controls">
+                  <input id="archiveSearchInput" type="search" placeholder="ابحث في سجل الأضابير..." />
+                </div>
+                <div class="archives-actions-small">
+                  <button id="countAllBtn" class="btn small">تحديد الكل</button>
+                  <button id="refreshAllBtn" class="btn small">انهاء المحدد</button>
+                  <button id="deleteSelectedBtn" class="btn small danger">حذف المحدد</button>
+                </div>
+              </div>
+
+              <div class="archives-table-wrap">
+                <table id="archiveTable" class="data-table">
+                  <thead>
+                    <tr>
+                      <th class="row-select"><input type="checkbox" id="selectAllArchive" aria-label="تحديد الكل" /></th>
+                      <th>اسم المشروع</th>
+                      <th>تاريخ إنشاء الإضبارة</th>
+                      <th>حالة الأضبارة</th>
+                      <th>إجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- populated by JS -->
+                  </tbody>
+                </table>
+              </div>
+
+              <div id="archivesLateView" class="archives-list" style="display:none">
+                <div class="archives-list-header">
+                  <div class="archives-controls">
+                    <h3>الأضابير المتأخرة</h3>
+                  </div>
+                  <div class="archives-actions-small">
+                    <button id="lateBackBtn" class="btn small">رجوع</button>
+                  </div>
+                </div>
+                <div class="card">
+                  <p id="latePlaceholder">لا توجد بيانات حتى الآن — هذا عرض مؤقت للأضابير المتأخرة.</p>
+                </div>
+              </div>
+
+              <div class="archives-list-footer action-row">
+                <button id="archivesListBackBtn" class="btn">رجوع للقائمة</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="users" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">إدارة النظام</p>
+              <h2>المستخدمون والصلاحيات</h2>
+              <p class="page-description">إضافة مستخدمين جدد وتحديد صلاحياتهم والتحكم في حساباتهم.</p>
+            </div>
+          </div>
+          <div class="users-layout">
+            <div class="card">
+              <h3 class="section-title">إضافة / تعديل مستخدم</h3>
+              <form id="addUserForm" class="form-grid" style="grid-template-columns: 1fr 1fr 1fr auto; align-items: end; gap: 16px;"></form>
+            </div>
+            <div class="card">
+              <h3 class="section-title">قائمة المستخدمين</h3>
+              <div id="usersTableContainer" class="table-wrap"></div>
+            </div>
+          </div>
+        </div>
+        <div id="settings" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">إعدادات النظام</p>
+              <h2>الإعدادات العامة</h2>
+              <p class="page-description">إدارة قاعدة البيانات والتحكم في السجلات العامة.</p>
+            </div>
+          </div>
+          <div class="card settings-card">
+            <h3 class="settings-title backup"><i class="fa-solid fa-database"></i> النسخ الاحتياطي والاستعادة</h3>
+            <p class="settings-description">يمكنك أخذ نسخة احتياطية كاملة من بيانات النظام بصيغة JSON أو استيراد نسخة سابقة. الاستيراد سيقوم بحذف البيانات الحالية أولاً.</p>
+            <div class="settings-actions">
+              <button id="backupDbBtn" class="btn settings-btn backup-btn"><i class="fa-solid fa-download"></i> أخذ نسخة احتياطية</button>
+              <button id="restoreDbBtn" class="btn settings-btn restore-btn"><i class="fa-solid fa-upload"></i> استيراد نسخة احتياطية</button>
+              <input type="file" id="importBackupInput" accept=".json" hidden>
+            </div>
+          </div>
+          <div class="card settings-card">
+            <h3 class="settings-title danger"><i class="fa-solid fa-triangle-exclamation"></i> منطقة خطرة</h3>
+            <p class="settings-description">هذا الخيار سيقوم بمسح كافة البيانات المخزنة في النظام (الصادر، الوارد، الاستقبال، بريد الدوائر، والسجلات التاريخية) من قاعدة البيانات والمتصفح. يرجى التأكد من أخذ نسخة احتياطية قبل المتابعة.</p>
+            <div class="settings-actions">
+              <button id="clearDbBtn" class="btn settings-btn danger-btn"><i class="fa-solid fa-trash-can"></i> مسح قاعدة البيانات بالكامل</button>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
     
@@ -505,7 +979,68 @@
       </div>
     </div>
 
+    <div id="transferModal" class="modal hidden">
+      <div class="modal-window">
+        <div class="modal-header">
+          <h3>تحويل السجل إلى الدوائر</h3>
+          <button id="closeTransferModal" class="btn">إغلاق</button>
+        </div>
+        <div class="modal-body">
+          <div id="transferList"></div>
+          <div style="margin-top:12px">
+            <label>ملاحظة (اختياري)</label>
+            <textarea id="transferNote" rows="3" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e6e9ef"></textarea>
+          </div>
+          <div class="transfer-controls">
+            <button id="confirmTransferBtn" class="btn primary">تحويل (Enter)</button>
+            <button id="cancelTransferBtn" class="btn">إلغاء</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Log Modal -->
+    <div id="activityLogModal" class="modal hidden">
+      <div class="modal-window full-screen">
+        <div class="modal-header">
+          <h3 id="activityLogTitle">سجل نشاطات المستخدم</h3>
+          <button id="closeActivityLogModal" class="btn">إغلاق</button>
+        </div>
+        <div id="activityLogBody" class="modal-body">
+          <!-- Activity log table will be rendered here by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+      <div class="modal-window" style="max-width: 420px; padding: 24px;">
+        <div class="modal-header" style="margin-bottom: 20px;">
+          <h3 style="font-size: 24px; color: #1E40AF;">تسجيل الدخول</h3>
+        </div>
+        <div class="modal-body">
+          <form id="loginForm">
+            <div class="form-row" style="margin-bottom: 16px;"><label for="username">اسم المستخدم</label><input type="text" id="username" required autocomplete="username"></div>
+            <div class="form-row" style="margin-bottom: 24px;"><label for="password">كلمة المرور</label><input type="password" id="password" required autocomplete="current-password"></div>
+            <button type="submit" class="btn primary" style="width: 100%; padding: 14px; font-size: 18px;">دخــــول</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="js/app.js"></script>
+    <!-- أزرار التنقل لأعلى وأسفل الصفحة -->
+    <button id="scrollToTopBtn" class="scroll-btn top-btn" title="الذهاب للأعلى">
+      <i class="fa-solid fa-arrow-up"></i>
+    </button>
+    <button id="scrollToBottomBtn" class="scroll-btn bottom-btn" title="الذهاب للأسفل">
+      <i class="fa-solid fa-arrow-down"></i>
+    </button>
+    <!-- Global navigation buttons: back one step and back to main -->
+    <div id="globalNavButtons" style="position:fixed;left:16px;bottom:18px;display:none;flex-direction:column;gap:8px;z-index:9999">
+      <button id="backStepBtn" class="btn" title="رجوع خطوة">رجوع</button>
+      <button id="backHomeBtn" class="btn" title="العودة للرئيسية">الرئيسية</button>
+    </div>
   </body>
   </html>

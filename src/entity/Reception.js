@@ -106,7 +106,7 @@ module.exports = new EntitySchema({
       nullable: true,
     },
     attachments: {
-      type: 'text',
+      type: 'longtext',
       nullable: true,
     },
     createdAt: {

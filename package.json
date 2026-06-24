@@ -1,4 +1,5 @@
 {
+  "$schema": "./.vscode/package.schema.json",
   "name": "diwan-dashboard",
   "version": "1.0.0",
   "description": "واجهة لوحة تحكم الديوان العام - مديرية الخدمات الفنية اللاذقية",
@@ -15,10 +16,12 @@
     "typeorm": "^0.3.18",
     "mysql2": "^3.3.1",
     "reflect-metadata": "^0.1.13",
-    "dotenv": "^16.0.3"
+    "dotenv": "^16.0.3",
+    "busboy": "^1.6.0",
+    "bcryptjs": "^2.4.3",
+    "node-cron": "^3.0.2"
   },
   "devDependencies": {
     "nodemon": "^2.0.22"
   }
 }
-
