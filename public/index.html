@@ -24,7 +24,7 @@
       </div>
       <nav class="tabs">
         <ul>
-          <li class="tab" data-tab="outgoing"><i class="fa-solid fa-paper-plane"></i> البريد الصادر</li>
+          <li class="tab" data-tab="outgoing"><i class="fa-solid fa-arrow-up-right-from-square"></i> البريد الصادر</li>
           <li class="tab" data-tab="incoming"><i class="fa-solid fa-envelope-open-text"></i> البريد الوارد</li>
           <li class="tab" data-tab="reception"><i class="fa-solid fa-headset"></i> الاستقبال والشكاوي</li>
           <li class="tab" data-tab="search"><i class="fa-solid fa-magnifying-glass"></i> البحث</li>
@@ -37,29 +37,30 @@
       </nav>
     </header>
     <main class="main-bg">
-      <section id="dashboardStats" class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon"><i class="fa-solid fa-inbox"></i></div>
-          <div class="stat-number" id="statIncoming">0</div>
-          <div class="stat-title">عدد الكتب الواردة</div>
+      <section id="dashboardHome" class="dashboard-tab-grid">
+        <div class="dashboard-card" data-tab="outgoing">
+          <div class="card-head"><i class="fa-solid fa-arrow-up-right-from-square"></i></div>
+          <h3>البريد الصادر</h3>
+          <div class="card-metric"><span id="cardOutgoingCount">0</span> كتاب</div>
+          <div class="card-note">عرض كتب الصادر وإدارتها</div>
         </div>
-
-        <div class="stat-card">
-          <div class="stat-icon"><i class="fa-solid fa-paper-plane-top"></i></div>
-          <div class="stat-number" id="statOutgoing">0</div>
-          <div class="stat-title">عدد الكتب الصادرة</div>
+        <div class="dashboard-card" data-tab="incoming">
+          <div class="card-head"><i class="fa-solid fa-envelope-open-text"></i></div>
+          <h3>البريد الوارد</h3>
+          <div class="card-metric"><span id="cardIncomingCount">0</span> كتاب</div>
+          <div class="card-note">عرض كتب الوارد وإدارتها</div>
         </div>
-
-        <div class="stat-card">
-          <div class="stat-icon"><i class="fa-solid fa-headset"></i></div>
-          <div class="stat-number" id="statReception">0</div>
-          <div class="stat-title">عدد الاستقبال والشكاوى</div>
+        <div class="dashboard-card" data-tab="reception">
+          <div class="card-head"><i class="fa-solid fa-headset"></i></div>
+          <h3>الاستقبال والشكاوي</h3>
+          <div class="card-metric"><span id="cardReceptionCount">0</span> سجل</div>
+          <div class="card-note">إدارة الاستقبال والشكاوى</div>
         </div>
-
-        <div class="stat-card">
-          <div class="stat-icon"><i class="fa-solid fa-chart-simple"></i></div>
-          <div class="stat-number" id="statTotal">0</div>
-          <div class="stat-title">إجمالي السجلات في النظام</div>
+        <div class="dashboard-card" data-tab="archives">
+          <div class="card-head"><i class="fa-solid fa-box-archive"></i></div>
+          <h3>الأضابير</h3>
+          <div class="card-metric"><span id="cardArchivesCount">0</span> ملف</div>
+          <div class="card-note">عرض وإدارة الأضابير</div>
         </div>
       </section>
 
@@ -70,7 +71,6 @@
             <div>
               <p class="eyebrow">نظام الأرشفة والتوثيق</p>
               <h2>البريد الصادر</h2>
-              <p class="page-description">واجهة كاملة لتسجيل الكتب الصادرة وإدارتها بطريقة عصرية ومنظمة.</p>
             </div>
             <div class="page-actions">
               <button id="resetFormBtn" class="btn">مسح الحقول</button>
@@ -191,9 +191,12 @@
               <table id="overdueTable" class="data-table">
                 <thead>
                   <tr>
-                    <th>اسم الأضبارة</th>
+                    <th>رقم الأضبارة</th>
                     <th>الدائرة الحالية</th>
-                    <th>تاريخ التأخر</th>
+                    <th>المدة المخصصة</th>
+                    <th>المهلة النهائية</th>
+                    <th>مدة التأخير</th>
+                    <th>الحالة الحالية</th>
                     <th>إجراءات</th>
                   </tr>
                 </thead>
@@ -339,7 +342,6 @@
             <div>
               <p class="eyebrow">نظام الأرشفة والتوثيق</p>
               <h2>الاستقبال والشكاوي</h2>
-              <p class="page-description">واجهة كاملة لتسجيل قضايا الاستقبال والشكاوى وإدارتها بشكل متكامل.</p>
             </div>
             <div class="page-actions">
               <button id="resetReceptionBtn" class="btn">مسح الحقول</button>
@@ -518,7 +520,6 @@
             <div>
               <p class="eyebrow">قوائم الدوائر</p>
               <h2>الدوائر في المديرية</h2>
-              <p class="page-description">اختر دائرة لفتح واجهة خاصة بها ومشاهدة إشعارات البريد الوارد.</p>
             </div>
           </div>
           <div class="card">
@@ -542,9 +543,31 @@
               <button id="archiveTopLateBtn" class="btn small">الأضابير المتأخرة</button>
             </div>
             <div class="archives-cards">
-              <div id="archiveNewCard" class="archive-card">اضبارة جديدة</div>
-              <div id="archiveLateCard" class="archive-card">الأضابير المتأخرة</div>
-              <div id="archiveListCard" class="archive-card">سجل الأضابير</div>
+              <div id="archiveNewCard" class="archive-card" data-tab="archives-new">
+                <div class="archive-card-icon"><i class="fa-solid fa-folder-plus"></i></div>
+                <div class="archive-card-body">
+                  <h4>اضبارة جديدة</h4>
+                  <div class="archive-card-note">إنشاء أضابير جديدة وإدارة الحقول</div>
+                </div>
+              </div>
+
+              <div id="archiveLateCard" class="archive-card" data-tab="archives-late">
+                <div class="archive-card-icon"><i class="fa-solid fa-clock-exclamation"></i></div>
+                <div class="archive-card-body">
+                  <h4>الأضابير المتأخرة</h4>
+                  <div class="archive-card-metric"><span id="archiveLateCount">0</span> حالة</div>
+                  <div class="archive-card-note">عرض وإدارة الأضابير المتأخرة</div>
+                </div>
+              </div>
+
+              <div id="archiveListCard" class="archive-card" data-tab="archives-list">
+                <div class="archive-card-icon"><i class="fa-solid fa-box-archive"></i></div>
+                <div class="archive-card-body">
+                  <h4>سجل الأضابير</h4>
+                  <div class="archive-card-metric"><span id="archiveListCount">0</span> ملف</div>
+                  <div class="archive-card-note">عرض السجلات المؤرشفة وإدارتها</div>
+                </div>
+              </div>
             </div>
             
             <div id="archiveNewView" class="archives-list" style="display:none">
@@ -910,7 +933,6 @@
             <div>
               <p class="eyebrow">إدارة النظام</p>
               <h2>المستخدمون والصلاحيات</h2>
-              <p class="page-description">إضافة مستخدمين جدد وتحديد صلاحياتهم والتحكم في حساباتهم.</p>
             </div>
           </div>
           <div class="users-layout">
@@ -929,7 +951,6 @@
             <div>
               <p class="eyebrow">إعدادات النظام</p>
               <h2>الإعدادات العامة</h2>
-              <p class="page-description">إدارة قاعدة البيانات والتحكم في السجلات العامة.</p>
             </div>
           </div>
           <div class="card settings-card">
@@ -1012,18 +1033,22 @@
       </div>
     </div>
 
-    <!-- Login Modal -->
+    <!-- Fullscreen Login Modal -->
     <div id="loginModal" class="modal">
-      <div class="modal-window" style="max-width: 420px; padding: 24px;">
-        <div class="modal-header" style="margin-bottom: 20px;">
-          <h3 style="font-size: 24px; color: #1E40AF;">تسجيل الدخول</h3>
-        </div>
-        <div class="modal-body">
-          <form id="loginForm">
-            <div class="form-row" style="margin-bottom: 16px;"><label for="username">اسم المستخدم</label><input type="text" id="username" required autocomplete="username"></div>
-            <div class="form-row" style="margin-bottom: 24px;"><label for="password">كلمة المرور</label><input type="password" id="password" required autocomplete="current-password"></div>
-            <button type="submit" class="btn primary" style="width: 100%; padding: 14px; font-size: 18px;">دخــــول</button>
-          </form>
+      <div class="modal-window login-fullscreen-window" style="max-width: none; width:100%; padding:0; border-radius:0;">
+        <div class="login-fullscreen-grid">
+          <div class="login-left" style="background-image: url('/images/FB_IMG_1781828566984.JPG');"></div>
+          <div class="login-right">
+            <div class="login-right-inner">
+              <h1 class="login-title">الديوان العام</h1>
+              <p class="login-subtitle">مديرية الخدمات الفنية - شاشة الدخول</p>
+              <form id="loginForm" class="login-form">
+                <div class="form-row"><label for="username">اسم المستخدم</label><input type="text" id="username" required autocomplete="username"></div>
+                <div class="form-row"><label for="password">كلمة المرور</label><input type="password" id="password" required autocomplete="current-password"></div>
+                <button type="submit" class="btn primary login-submit">دخــــول</button>
+              </form>
+            </div>
+          </div>
         </div>
       </div>
     </div>

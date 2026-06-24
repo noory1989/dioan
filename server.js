@@ -220,9 +220,16 @@ const createEntityRoutes = (routeBase, entityName) => {
                 status: body.status || 'open',
                 alerted: body.alerted || false,
                 // optional dossier/workflow fields
-                currentDepartmentId: body.currentDepartmentId || body.current_department_id || null,
-                expectedDurationMinutes: (body.expectedDurationMinutes !== undefined ? body.expectedDurationMinutes : (body.expected_duration_minutes !== undefined ? body.expected_duration_minutes : null)),
-                durationStartedAt: body.durationStartedAt || body.duration_started_at || null,
+                  currentDepartmentId: body.currentDepartmentId || body.current_department_id || null,
+                  // support duration in minutes OR days (client may send expectedDurationDays)
+                  expectedDurationMinutes: (function() {
+                    if (body.expectedDurationMinutes !== undefined) return Number(body.expectedDurationMinutes);
+                    if (body.expected_duration_minutes !== undefined) return Number(body.expected_duration_minutes);
+                    if (body.expectedDurationDays !== undefined) return Number(body.expectedDurationDays) * 24 * 60;
+                    if (body.expected_duration_days !== undefined) return Number(body.expected_duration_days) * 24 * 60;
+                    return null;
+                  })(),
+                  durationStartedAt: body.durationStartedAt || body.duration_started_at || null,
                 isLocked: (body.isLocked !== undefined ? body.isLocked : (body.is_locked !== undefined ? body.is_locked : false)),
                 isTransferred: (body.isTransferred !== undefined ? body.isTransferred : false),
               };
@@ -259,7 +266,14 @@ const createEntityRoutes = (routeBase, entityName) => {
             alerted: req.body.alerted || false,
             // optional dossier/workflow fields
             currentDepartmentId: req.body.currentDepartmentId || req.body.current_department_id || null,
-            expectedDurationMinutes: (req.body.expectedDurationMinutes !== undefined ? req.body.expectedDurationMinutes : (req.body.expected_duration_minutes !== undefined ? req.body.expected_duration_minutes : null)),
+            // support duration in minutes OR days
+            expectedDurationMinutes: (function() {
+              if (req.body.expectedDurationMinutes !== undefined) return Number(req.body.expectedDurationMinutes);
+              if (req.body.expected_duration_minutes !== undefined) return Number(req.body.expected_duration_minutes);
+              if (req.body.expectedDurationDays !== undefined) return Number(req.body.expectedDurationDays) * 24 * 60;
+              if (req.body.expected_duration_days !== undefined) return Number(req.body.expected_duration_days) * 24 * 60;
+              return null;
+            })(),
             durationStartedAt: req.body.durationStartedAt || req.body.duration_started_at || null,
             isLocked: (req.body.isLocked !== undefined ? req.body.isLocked : (req.body.is_locked !== undefined ? req.body.is_locked : false)),
             isTransferred: (req.body.isTransferred !== undefined ? req.body.isTransferred : false),
@@ -390,7 +404,14 @@ app.post('/api/dossiers', async (req, res) => {
       alerted: body.alerted || false,
       // workflow fields required by the user
       currentDepartmentId: body.current_department_id || body.currentDepartmentId || null,
-      expectedDurationMinutes: (body.expected_duration_minutes !== undefined ? Number(body.expected_duration_minutes) : (body.expectedDurationMinutes !== undefined ? Number(body.expectedDurationMinutes) : null)),
+      // accept duration in minutes or days
+      expectedDurationMinutes: (function() {
+        if (body.expected_duration_minutes !== undefined) return Number(body.expected_duration_minutes);
+        if (body.expectedDurationMinutes !== undefined) return Number(body.expectedDurationMinutes);
+        if (body.expected_duration_days !== undefined) return Number(body.expected_duration_days) * 24 * 60;
+        if (body.expectedDurationDays !== undefined) return Number(body.expectedDurationDays) * 24 * 60;
+        return null;
+      })(),
       durationStartedAt: now,
       lockedAt: null,
     };
@@ -409,50 +430,49 @@ const startOverdueChecker = async () => {
   if (!dbReady) return;
   try {
     const cmRepo = getRepository('CircleMail');
-    const odRepo = getRepository('Overdue');
-    const cms = await cmRepo.find();
+    const cms = await cmRepo.find({ order: { sourceEntity: 'ASC', sourceId: 'ASC', id: 'ASC' } });
     const now = Date.now();
+    const latestBySource = new Map();
+
+    // Determine the current circle mail per dossier source
+    for (const cm of cms) {
+      if (cm.sourceId === undefined || cm.sourceId === null) continue;
+      const key = `${cm.sourceEntity || ''}::${cm.sourceId}`;
+      const existing = latestBySource.get(key);
+      if (!existing || cm.id > existing.id) {
+        latestBySource.set(key, cm);
+      }
+    }
+
+    // Clear overdue state for non-current records, and update current records based on deadline
     for (const cm of cms) {
       try {
-        // Skip if dossier already marked transferred or deleted
-        if (cm.isTransferred) {
-          // resolve any pending overdue entries for this source
-          const pendings = await odRepo.find({ where: { dossierId: cm.sourceId, status: 'pending' } });
-          for (const p of pendings) { p.status = 'resolved'; await odRepo.save(p); }
-          continue;
+        const key = (cm.sourceId === undefined || cm.sourceId === null) ? `id::${cm.id}` : `${cm.sourceEntity || ''}::${cm.sourceId}`;
+        const currentCm = latestBySource.get(key);
+        const shouldBeOverdue = currentCm && currentCm.id === cm.id &&
+          !cm.isTransferred &&
+          cm.status !== 'finished' &&
+          cm.durationStartedAt &&
+          cm.expectedDurationMinutes &&
+          !isNaN(new Date(cm.durationStartedAt).getTime()) &&
+          (Date.now() > new Date(cm.durationStartedAt).getTime() + Number(cm.expectedDurationMinutes) * 60 * 1000);
+
+        if (cm.isOverdue !== Boolean(shouldBeOverdue)) {
+          await cmRepo.update(cm.id, { isOverdue: Boolean(shouldBeOverdue) });
         }
-        if (!cm.durationStartedAt || !cm.expectedDurationMinutes) continue;
-        if (!cm.sourceId) continue; // must refer to a dossier/source record
-        const startMs = new Date(cm.durationStartedAt).getTime();
-        if (isNaN(startMs)) continue;
-        const dueMs = startMs + (Number(cm.expectedDurationMinutes) * 60 * 1000);
-        // check if a later CircleMail exists for same source (meaning it was transferred)
-        const related = await cmRepo.find({ where: { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId }, order: { id: 'ASC' } });
-        const hasLater = related.some(r => r.id > cm.id);
-        if (now >= dueMs && !hasLater) {
-          // create overdue record if not exists for this dossier and department
-          const exists = await odRepo.findOneBy({ dossierId: cm.sourceId, departmentId: cm.currentDepartmentId, status: 'pending' });
-          if (!exists) {
-            await odRepo.save({ dossierId: cm.sourceId, departmentId: cm.currentDepartmentId || 0, overdueSince: new Date(dueMs), status: 'pending' });
-            try { await cmRepo.update(cm.id, { isOverdue: true }); } catch (e) { /* ignore */ }
-          }
-        } else if (hasLater) {
-          // mark pending overdues resolved when a later transfer exists
-          const pendings = await odRepo.find({ where: { dossierId: cm.sourceId, status: 'pending' } });
-          for (const p of pendings) { p.status = 'resolved'; await odRepo.save(p); }
-          try { await cmRepo.update(cm.id, { isOverdue: false }); } catch (e) { /* ignore */ }
-        }
-      } catch (e) { /* ignore per-row errors */ }
+      } catch (innerErr) {
+        console.warn('Overdue checker row update failed for circle_mail id', cm.id, innerErr);
+      }
     }
-  } catch (err) { console.error('Overdue checker error:', err); }
+  } catch (err) {
+    console.error('Overdue checker error:', err);
+  }
 };
 
 // Run checker immediately and schedule it via cron every minute
 try {
-  // initial run shortly after startup
-  setTimeout(() => { try { startOverdueChecker(); } catch(e){} }, 5 * 1000);
-  // schedule every minute using node-cron
-  cron.schedule('* * * * *', async () => {
+  setTimeout(() => { try { startOverdueChecker(); } catch (e) { console.error('Initial overdue checker failed:', e); } }, 5 * 1000);
+  cron.schedule('*/1 * * * *', async () => {
     try { await startOverdueChecker(); } catch (e) { console.error('Scheduled overdue checker error:', e); }
   });
 } catch (e) { console.error('Failed to schedule cron job for overdue checker:', e); }
@@ -463,11 +483,25 @@ const startLockScheduler = async () => {
   try {
     // update rows that meet the criteria: duration_started_at IS NOT NULL, current_department_id IS NOT NULL, deleted_at IS NULL, locked_at IS NULL, duration_started_at + 30 minutes <= NOW()
     const res = await AppDataSource.manager.query(
-      `UPDATE circle_mail SET locked_at = NOW() WHERE duration_started_at IS NOT NULL AND current_department_id IS NOT NULL AND deleted_at IS NULL AND locked_at IS NULL AND TIMESTAMPDIFF(MINUTE, duration_started_at, NOW()) >= 30`
+      `UPDATE circle_mail SET lockedAt = NOW() WHERE durationStartedAt IS NOT NULL AND currentDepartmentId IS NOT NULL AND deletedAt IS NULL AND lockedAt IS NULL AND TIMESTAMPDIFF(MINUTE, durationStartedAt, NOW()) >= 30`
     );
     if (res && res.affectedRows) console.log('Lock scheduler updated rows:', res.affectedRows);
   } catch (err) { console.error('Lock scheduler error:', err); }
 };
+
+// Debug route: return a small sample of circle_mail rows (diagnostic only)
+app.get('/api/debug/circlemail-sample', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Database is not initialized' });
+  try {
+    const rows = await AppDataSource.manager.query(
+      `SELECT id, sourceEntity, sourceId, currentDepartmentId, expectedDurationMinutes, durationStartedAt, isOverdue FROM circle_mail ORDER BY id DESC LIMIT 20`
+    );
+    return res.json(rows || []);
+  } catch (err) {
+    console.error('Debug sample query failed:', err);
+    return res.status(500).json({ error: 'Debug query failed' });
+  }
+});
 
 // schedule lock checker every minute
 try {
@@ -559,7 +593,7 @@ app.post('/api/circlemail/update-by-key', async (req, res) => {
     }
     await repo.update(found.id, updates || {});
     const updated = await repo.findOneBy({ id: found.id });
-    res.json(sanitizeRecord(updated));
+    res.json(updated);
   } catch (err) {
     console.error('Failed to update circlemail by key:', err);
     res.status(500).json({ error: 'Failed to update circlemail' });
@@ -605,7 +639,7 @@ app.post('/api/history/by-key', async (req, res) => {
 app.post('/api/dossiers/transfer', async (req, res) => {
   if (!ensureDb(res)) return res.status(503).json({ error: 'Database is not initialized' });
   try {
-    const { sourceId, sourceEntity, targetDepartmentId, expectedDurationMinutes, circleName, actor } = req.body || {};
+    const { sourceId, sourceEntity, targetDepartmentId, expectedDurationMinutes, expectedDurationDays, circleName, actor } = req.body || {};
     if (!sourceId || !targetDepartmentId) return res.status(400).json({ error: 'Missing sourceId or targetDepartmentId' });
 
     const cmRepo = getRepository('CircleMail');
@@ -621,7 +655,11 @@ app.post('/api/dossiers/transfer', async (req, res) => {
     const now = new Date();
     const updates = {
       currentDepartmentId: Number(targetDepartmentId),
-      expectedDurationMinutes: expectedDurationMinutes !== undefined && expectedDurationMinutes !== null ? Number(expectedDurationMinutes) : target.expectedDurationMinutes,
+      expectedDurationMinutes: (function() {
+        if (expectedDurationMinutes !== undefined && expectedDurationMinutes !== null) return Number(expectedDurationMinutes);
+        if (expectedDurationDays !== undefined && expectedDurationDays !== null) return Number(expectedDurationDays) * 24 * 60;
+        return target.expectedDurationMinutes;
+      })(),
       durationStartedAt: now,
       // mark as not transferred yet for this new assignment
       isTransferred: false,
@@ -632,6 +670,11 @@ app.post('/api/dossiers/transfer', async (req, res) => {
 
     await cmRepo.update(target.id, updates);
     const updated = await cmRepo.findOneBy({ id: target.id });
+
+    // Immediately clear live overdue flag for this dossier and resolve any pending overdue entries
+    try {
+      await cmRepo.update(target.id, { isOverdue: false });
+    } catch (e) { console.warn('Failed to clear isOverdue on transfer:', e); }
 
     // Resolve any pending overdue entries for this dossier
     try {
@@ -661,29 +704,62 @@ app.post('/api/dossiers/transfer', async (req, res) => {
 app.get('/api/overdue-dossiers', async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Database is not initialized' });
   try {
-    const rows = await AppDataSource.manager.query(
-      `SELECT od.id, od.dossier_id, od.department_id, od.overdue_since, od.status,
-              cm.payload as dossier_payload, cm.circleName as circle_name, cm.currentDepartmentId as current_department_id
-       FROM overdue_dossiers od
-       LEFT JOIN circle_mail cm ON cm.id = od.dossier_id
-       WHERE od.status = 'pending'
-       ORDER BY od.overdue_since DESC`);
+    // allow optional filters: departmentId and transferStatus (PENDING -> isTransferred = false)
+    const params = [];
+    let sql = `SELECT cm.id, cm.sourceEntity AS sourceEntity, cm.sourceId AS sourceId, cm.currentDepartmentId AS currentDepartmentId, cm.circleName as circle_name,
+              cm.status, cm.expectedDurationMinutes AS expectedDurationMinutes, cm.durationStartedAt AS durationStartedAt, cm.isOverdue AS isOverdue
+       FROM circle_mail cm
+       WHERE cm.isOverdue = 1
+         AND cm.durationStartedAt IS NOT NULL
+         AND cm.expectedDurationMinutes IS NOT NULL
+         AND cm.currentDepartmentId IS NOT NULL`;
 
-    // parse payloads and derive a display name
+    if (req.query && req.query.departmentId) {
+      sql += ' AND cm.currentDepartmentId = ?';
+      params.push(Number(req.query.departmentId));
+    }
+    if (req.query && req.query.transferStatus) {
+      const ts = String(req.query.transferStatus).toUpperCase();
+      if (ts === 'PENDING') {
+        sql += ' AND cm.isTransferred = 0';
+      } else if (ts === 'COMPLETED') {
+        sql += ' AND cm.isTransferred = 1';
+      }
+    }
+
+    sql += ' ORDER BY TIMESTAMPDIFF(SECOND, DATE_ADD(cm.durationStartedAt, INTERVAL cm.expectedDurationMinutes MINUTE), NOW()) DESC';
+
+    const rows = await AppDataSource.manager.query(sql, params);
+
     const out = (rows || []).map(r => {
-      let title = null;
-      try {
-        const p = r.dossier_payload ? JSON.parse(r.dossier_payload) : {};
-        title = p.title || p.name || p.subject || p.title_ar || null;
-      } catch (e) { title = null; }
+      const startedAt = r.durationStartedAt ? new Date(r.durationStartedAt) : null;
+      const durationMinutes = Number(r.expectedDurationMinutes) || 0;
+      const deadlineMs = startedAt ? startedAt.getTime() + durationMinutes * 60 * 1000 : null;
+      const deadlineAt = deadlineMs ? new Date(deadlineMs).toISOString() : null;
+      const delayMinutes = deadlineMs ? Math.max(0, Math.round((Date.now() - deadlineMs) / 60000)) : 0;
+      const formatDuration = (mins) => {
+        if (!Number.isFinite(mins) || mins <= 0) return '0 دقيقة';
+        const days = Math.floor(mins / 1440);
+        const hours = Math.floor((mins % 1440) / 60);
+        const minutes = mins % 60;
+        const parts = [];
+        if (days) parts.push(`${days} يوم${days === 1 ? '' : 'اً'}`);
+        if (hours) parts.push(`${hours} ساعة${hours === 1 ? '' : 'اً'}`);
+        if (minutes) parts.push(`${minutes} دقيقة`);
+        return parts.join(' ');
+      };
+
+      const title = `أضبارة #${r.sourceId || r.id}`;
       return {
         id: r.id,
-        dossierId: r.dossier_id,
-        dossierName: title || (`أضبارة #${r.dossier_id}`),
-        departmentId: r.department_id || r.current_department_id || null,
-        circleName: r.circle_name || null,
-        overdueSince: r.overdue_since,
-        status: r.status,
+        dossierNumber: r.sourceId || r.id,
+        dossierName: title,
+        currentDepartment: r.circle_name || (`دائرة ${r.currentDepartmentId || '-'}`),
+        assignedDurationMinutes: durationMinutes,
+        assignedDuration: formatDuration(durationMinutes),
+        deadlineAt,
+        delayDuration: formatDuration(delayMinutes),
+        status: r.status || '-',
       };
     });
 
@@ -694,22 +770,25 @@ app.get('/api/overdue-dossiers', async (req, res) => {
   }
 });
 
-// Mark an overdue_dossiers record as resolved (accepts { id } in body)
+// Mark an overdue dossier as resolved by clearing the live isOverdue state
 app.post('/api/overdue-dossiers/resolve', async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Database is not initialized' });
   try {
     const { id, dossierId } = req.body || {};
     if (!id && !dossierId) return res.status(400).json({ error: 'Missing id or dossierId' });
-    if (id) {
-      await AppDataSource.manager.query(`UPDATE overdue_dossiers SET status = 'resolved' WHERE id = ?`, [id]);
+
+    if (dossierId) {
       try {
-        // also clear is_overdue flag on the related circle_mail if any
-        await AppDataSource.manager.query(`UPDATE circle_mail cm JOIN overdue_dossiers od ON od.dossier_id = cm.id SET cm.is_overdue = 0 WHERE od.id = ?`, [id]);
-      } catch (e) { /* ignore */ }
-    } else {
-      await AppDataSource.manager.query(`UPDATE overdue_dossiers SET status = 'resolved' WHERE dossier_id = ?`, [dossierId]);
-      try { await AppDataSource.manager.query(`UPDATE circle_mail SET is_overdue = 0 WHERE id = ?`, [dossierId]); } catch (e) { /* ignore */ }
+        await AppDataSource.manager.query(`UPDATE circle_mail SET is_overdue = 0 WHERE source_id = ?`, [dossierId]);
+      } catch (e) { console.warn('Failed to clear is_overdue by dossierId:', e); }
     }
+
+    if (id) {
+      try {
+        await AppDataSource.manager.query(`UPDATE overdue_dossiers SET status = 'resolved' WHERE id = ?`, [id]);
+      } catch (e) { console.warn('Failed to resolve overdue record row:', e); }
+    }
+
     return res.json({ success: true });
   } catch (err) {
     console.error('Failed to resolve overdue record:', err);

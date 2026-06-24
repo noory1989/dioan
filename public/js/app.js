@@ -7,14 +7,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Tabs behavior: toggle active class and content
   const tabs = document.querySelectorAll('.tab');
+  const dashboardHome = document.getElementById('dashboardHome');
   const statsSection = document.getElementById('dashboardStats');
   const statIncomingEl = document.getElementById('statIncoming');
   const statOutgoingEl = document.getElementById('statOutgoing');
   const statReceptionEl = document.getElementById('statReception');
   const statTotalEl = document.getElementById('statTotal');
-  // ensure initial view: show stats, hide all tab contents
+  // ensure initial view: show home section, hide all tab contents
   document.querySelectorAll('.tab-content').forEach(nc => nc.style.display = 'none');
-  if (statsSection) statsSection.style.display = '';
+  if (dashboardHome) dashboardHome.style.display = '';
+  if (statsSection) statsSection.style.display = 'none';
 
   // Navigation history stack for back/forward behavior
   const navHistory = [];
@@ -23,6 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const openModal = document.querySelector('.modal:not(.hidden)');
     if (openModal) return { type: 'modal', id: openModal.id || null };
     // stats section visible?
+    if (dashboardHome && dashboardHome.style.display !== 'none') return { type: 'home' };
     if (statsSection && statsSection.style.display !== 'none') return { type: 'stats' };
     const visibleTabContent = Array.from(document.querySelectorAll('.tab-content')).find(c => c.style.display !== 'none');
     if (visibleTabContent) return { type: 'tab', id: visibleTabContent.id || null };
@@ -45,9 +48,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
     // hide tab contents
     document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+    if (snap.type === 'home') {
+      if (dashboardHome) dashboardHome.style.display = '';
+      if (statsSection) statsSection.style.display = 'none';
+      document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+      tabs.forEach(t => t.classList.remove('active'));
+      try { attachLocalBackToCurrentView(); } catch (e) {}
+      return;
+    }
     if (snap.type === 'stats') {
       if (statsSection) statsSection.style.display = '';
-      // remove active classes on tabs
+      if (dashboardHome) dashboardHome.style.display = 'none';
       tabs.forEach(t => t.classList.remove('active'));
       try { attachLocalBackToCurrentView(); } catch (e) {}
       return;
@@ -58,6 +69,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const el = document.getElementById(snap.id);
       if (el) el.style.display = '';
       if (statsSection) statsSection.style.display = 'none';
+      if (dashboardHome) dashboardHome.style.display = 'none';
       try { attachLocalBackToCurrentView(); } catch (e) {}
       return;
     }
@@ -115,7 +127,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
     // remove active from tabs
     tabs.forEach(t => t.classList.remove('active'));
-    if (statsSection) statsSection.style.display = '';
+    if (dashboardHome) dashboardHome.style.display = '';
+    if (statsSection) statsSection.style.display = 'none';
     try { attachLocalBackToCurrentView(); } catch (e) {}
   };
 
@@ -132,21 +145,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       tabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       const key = tab.getAttribute('data-tab');
-      // If outgoing selected, show outgoing and hide stats
-      if (key === 'outgoing'){
-        if (statsSection) statsSection.style.display = 'none';
-        document.querySelectorAll('.tab-content').forEach(c => { if (c.id === key) c.style.display = ''; else c.style.display = 'none'; });
-      } else {
-        // other tabs: hide outgoing and show stats by default (or their content if implemented)
-        document.querySelectorAll('.tab-content').forEach(c => { if (c.id === key) c.style.display = ''; else c.style.display = 'none'; });
-        // if the selected tab has no content, show main stats
-        const selected = document.getElementById(key);
-        if (!selected || selected.innerHTML.trim() === ''){
-          if (statsSection) statsSection.style.display = '';
-        } else {
-          if (statsSection) statsSection.style.display = 'none';
-        }
-      }
+      if (dashboardHome) dashboardHome.style.display = 'none';
+      // show the selected tab content and hide all others
+      document.querySelectorAll('.tab-content').forEach(c => { if (c.id === key) c.style.display = ''; else c.style.display = 'none'; });
+      if (statsSection) statsSection.style.display = 'none';
       // attach local back button if history exists
       try { attachLocalBackToCurrentView(); } catch (e) { /* ignore */ }
       // If overdue tab opened, load data
@@ -156,43 +158,61 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // Dashboard cards open the matching tab when clicked
+  document.querySelectorAll('.dashboard-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const key = card.getAttribute('data-tab');
+      const tab = document.querySelector(`.tab[data-tab="${key}"]`);
+      if (tab) tab.click();
+    });
+  });
+
   // Load overdue dossiers and render table
   const overdueTableBody = () => document.querySelector('#overdueTable tbody');
   const loadOverdueDossiers = async () => {
     const tbody = overdueTableBody(); if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="4">جاري التحميل...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7">جاري التحميل...</td></tr>';
     try {
       const rows = await fetchJson(`${API_BASE}/overdue-dossiers`);
       // update global overdue id set for filtering archive list
       window.__overdueDossierIds = new Set((rows || []).map(r => Number(r.dossierId)).filter(n => !isNaN(n)));
       renderOverdueTable(rows || []);
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="4">فشل في التحميل: ${err.message || err}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7">فشل في التحميل: ${err.message || err}</td></tr>`;
     }
   };
 
   const renderOverdueTable = (rows) => {
     const tbody = overdueTableBody(); if (!tbody) return;
     if (!Array.isArray(rows) || rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4">لا توجد أضابير متأخرة حالياً.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7">لا توجد أضابير متأخرة حالياً.</td></tr>';
       return;
     }
     tbody.innerHTML = '';
     rows.forEach(r => {
       const tr = document.createElement('tr');
-      const nameTd = document.createElement('td'); nameTd.textContent = r.dossierName || `أضبارة #${r.dossierId}`;
-      const deptTd = document.createElement('td'); deptTd.textContent = r.circleName || (r.departmentId ? `دائرة ${r.departmentId}` : '-');
-      const dateTd = document.createElement('td'); dateTd.textContent = (new Date(r.overdueSince)).toLocaleString('ar-SY');
+      const numberTd = document.createElement('td'); numberTd.textContent = r.dossierNumber != null ? r.dossierNumber : (r.dossierId || '-');
+      const deptTd = document.createElement('td'); deptTd.textContent = r.currentDepartment || r.circleName || '-';
+      const assignedTd = document.createElement('td'); assignedTd.textContent = r.assignedDuration || '-';
+      const deadlineTd = document.createElement('td'); deadlineTd.textContent = r.deadlineAt ? (new Date(r.deadlineAt)).toLocaleString('ar-SY') : '-';
+      const delayTd = document.createElement('td'); delayTd.textContent = r.delayDuration || '-';
+      const statusTd = document.createElement('td'); statusTd.textContent = r.status || '-';
       const actionTd = document.createElement('td');
-      const resolveBtn = document.createElement('button'); resolveBtn.className = 'btn small'; resolveBtn.textContent = 'وضع كمحلول';
+      const resolveBtn = document.createElement('button'); resolveBtn.className = 'btn small'; resolveBtn.textContent = 'إزالة التأخير';
       resolveBtn.addEventListener('click', async () => {
         try {
-          await fetchJson(`${API_BASE}/overdue-dossiers/resolve`, { method: 'POST', body: JSON.stringify({ id: r.id }) });
+          await fetchJson(`${API_BASE}/overdue-dossiers/resolve`, { method: 'POST', body: JSON.stringify({ dossierId: r.dossierId }) });
           loadOverdueDossiers();
-        } catch (e) { alert('فشل في وضع السجل كمحلول: ' + (e.message || e)); }
+        } catch (e) { alert('فشل في إزالة حالة التأخير: ' + (e.message || e)); }
       });
       actionTd.appendChild(resolveBtn);
-      tr.appendChild(nameTd); tr.appendChild(deptTd); tr.appendChild(dateTd); tr.appendChild(actionTd);
+      tr.appendChild(numberTd);
+      tr.appendChild(deptTd);
+      tr.appendChild(assignedTd);
+      tr.appendChild(deadlineTd);
+      tr.appendChild(delayTd);
+      tr.appendChild(statusTd);
+      tr.appendChild(actionTd);
       tbody.appendChild(tr);
     });
   };
@@ -422,6 +442,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Login modal elements
   const loginModal = document.getElementById('loginModal');
   const loginForm = document.getElementById('loginForm');
+
+  // If no session user, show fullscreen login and hide main UI
+  try {
+    const preservedUser = sessionStorage.getItem('diwan_user');
+    if (!preservedUser) {
+      if (loginModal) loginModal.classList.remove('hidden');
+      const mainEl = document.querySelector('main'); if (mainEl) mainEl.style.display = 'none';
+      const headerEl = document.querySelector('header'); if (headerEl) headerEl.style.display = 'none';
+    } else {
+      if (loginModal) loginModal.classList.add('hidden');
+    }
+  } catch (e) { /* ignore */ }
 
   // Activity Log Modal elements
   const activityLogModal = document.getElementById('activityLogModal');
@@ -965,8 +997,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (statIncomingEl) statIncomingEl.textContent = itemsIncoming.length;
     if (statOutgoingEl) statOutgoingEl.textContent = items.length;
     if (statReceptionEl) statReceptionEl.textContent = itemsReception.length;
-    if (statTotalEl) statTotalEl.textContent = items.length + itemsIncoming.length + itemsReception.length;
+    if (statTotalEl) statTotalEl.textContent = items.length + itemsIncoming.length + itemsReception.length + itemsArchive.length;
+    const cardOutgoing = document.getElementById('cardOutgoingCount');
+    const cardIncoming = document.getElementById('cardIncomingCount');
+    const cardReception = document.getElementById('cardReceptionCount');
+    const cardArchives = document.getElementById('cardArchivesCount');
+    if (cardOutgoing) cardOutgoing.textContent = items.length;
+    if (cardIncoming) cardIncoming.textContent = itemsIncoming.length;
+    if (cardReception) cardReception.textContent = itemsReception.length;
+    if (cardArchives) cardArchives.textContent = itemsArchive.length;
   };
+
+  // Enhance dashboard stats with archive-specific counts
+  const archiveLateEl = document.getElementById('archiveLateCount');
+  const archiveListEl = document.getElementById('archiveListCount');
+  if (archiveListEl) archiveListEl.textContent = itemsArchive.length;
+  if (archiveLateEl) {
+    // Prefer local cached set if available
+    try {
+      if (window.__overdueDossierIds && typeof window.__overdueDossierIds.size === 'number') {
+        archiveLateEl.textContent = window.__overdueDossierIds.size;
+      } else {
+        // Fetch short list from API to compute count (non-blocking)
+        fetch(`${API_BASE}/overdue-dossiers`).then(r => r.json()).then(rows => {
+          archiveLateEl.textContent = Array.isArray(rows) ? rows.length : 0;
+        }).catch(() => { /* ignore errors for stats */ });
+      }
+    } catch (e) { /* ignore */ }
+  }
 
   const circles = [
     'مكتب السيد المدير', 'الرقابة الداخلية', 'التخطيط والمتابعة', 'الآليات', 'المكتب الإعلامي', 'ديوان الشؤون الفنية',
@@ -4290,10 +4348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (statsSection) statsSection.style.display = 'none';
     }
 
-    // Auto-click the first available tab for the user
-    if (firstVisibleTab) {
-      firstVisibleTab.click();
-    }
+    // Do not auto-open a tab; keep the dashboard home visible until the user chooses a tab or card.
   };
 
   const handleLogin = async (username, password) => {
