@@ -173,12 +173,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tbody = overdueTableBody(); if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="7">جاري التحميل...</td></tr>';
     try {
-      const rows = await fetchJson(`${API_BASE}/overdue-dossiers`);
-      // update global overdue id set for filtering archive list
-      window.__overdueDossierIds = new Set((rows || []).map(r => Number(r.dossierId)).filter(n => !isNaN(n)));
-      renderOverdueTable(rows || []);
+      const serverRows = await fetchJson(`${API_BASE}/overdue-dossiers`);
+      const localRows = getLocalArchiveOverdueRows();
+      const rows = mergeOverdueRows(serverRows || [], localRows);
+      window.__overdueDossierIds = new Set(rows.map(r => Number(r.dossierId)).filter(n => !isNaN(n)));
+      renderOverdueTable(rows);
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="7">فشل في التحميل: ${err.message || err}</td></tr>`;
+      const localRows = getLocalArchiveOverdueRows();
+      window.__overdueDossierIds = new Set(localRows.map(r => Number(r.dossierId)).filter(n => !isNaN(n)));
+      renderOverdueTable(localRows);
     }
   };
 
@@ -213,6 +216,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       tr.appendChild(delayTd);
       tr.appendChild(statusTd);
       tr.appendChild(actionTd);
+      tbody.appendChild(tr);
+    });
+  };
+
+  const archiveLateTableBody = () => document.querySelector('#archiveLateTable tbody');
+  const renderArchiveLate = () => {
+    const tbody = archiveLateTableBody(); if (!tbody) return;
+    const rows = getLocalArchiveOverdueRows();
+    const placeholder = document.getElementById('latePlaceholder');
+    if (!rows.length) {
+      tbody.innerHTML = '';
+      if (placeholder) placeholder.style.display = '';
+      return;
+    }
+    if (placeholder) placeholder.style.display = 'none';
+    tbody.innerHTML = '';
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.dossierNumber}</td>
+        <td>${r.currentDepartment}</td>
+        <td>${r.assignedDuration}</td>
+        <td>${r.deadlineAt ? (new Date(r.deadlineAt)).toLocaleString('ar-SY') : '-'}</td>
+        <td>${r.delayDuration}</td>
+        <td>${r.status}</td>
+      `;
       tbody.appendChild(tr);
     });
   };
@@ -1002,10 +1031,111 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cardIncoming = document.getElementById('cardIncomingCount');
     const cardReception = document.getElementById('cardReceptionCount');
     const cardArchives = document.getElementById('cardArchivesCount');
+    const archiveLateEl = document.getElementById('archiveLateCount');
+    const archiveListEl = document.getElementById('archiveListCount');
     if (cardOutgoing) cardOutgoing.textContent = items.length;
     if (cardIncoming) cardIncoming.textContent = itemsIncoming.length;
     if (cardReception) cardReception.textContent = itemsReception.length;
     if (cardArchives) cardArchives.textContent = itemsArchive.length;
+    if (archiveListEl) archiveListEl.textContent = itemsArchive.length;
+    if (archiveLateEl) {
+      try {
+        archiveLateEl.textContent = getArchiveOverdueUniqueCount();
+      } catch (e) {
+        archiveLateEl.textContent = '0';
+      }
+    }
+  };
+
+  const convertExpectedToMinutes = (value, unit) => {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return 0;
+    const u = String(unit || '').trim().toLowerCase();
+    if (u === 'minutes' || u === 'minute' || u === 'دقيقة') return num;
+    if (u === 'hours' || u === 'hour' || u === 'ساعة') return num * 60;
+    if (u === 'days' || u === 'day' || u === 'يوم') return num * 24 * 60;
+    if (u === 'weeks' || u === 'week' || u === 'أسبوع') return num * 7 * 24 * 60;
+    if (u === 'months' || u === 'month' || u === 'شهر') return num * 30 * 24 * 60;
+    return num;
+  };
+
+  const getLocalArchiveOverdueRows = () => {
+    const now = Date.now();
+    const sectionLabels = {
+      studies: 'الدراسات',
+      tech: 'ديوان الشؤون الفنية',
+      gov: 'الجهات الحكومية',
+      legal: 'القانونية',
+      gov2: 'أخرى'
+    };
+    const rows = [];
+    (itemsArchive || []).forEach(item => {
+      if (!item || item.status === 'finished') return;
+      let bestOverdue = null;
+      Object.keys(sectionLabels).forEach(section => {
+        const sectionData = item[section];
+        const expected = sectionData && sectionData.expected;
+        const savedAt = sectionData && sectionData.savedAt;
+        if (!expected || !savedAt) return;
+        const minutes = convertExpectedToMinutes(expected.value, expected.unit);
+        if (minutes <= 0) return;
+        const savedTimestamp = new Date(savedAt).getTime();
+        if (isNaN(savedTimestamp)) return;
+        const deadlineMs = savedTimestamp + minutes * 60 * 1000;
+        if (deadlineMs <= now) {
+          const delayMinutes = Math.max(0, Math.round((now - deadlineMs) / 60000));
+          const row = {
+            dossierId: item.id,
+            dossierNumber: item.id,
+            currentDepartment: sectionLabels[section],
+            assignedDuration: `${expected.value || 0} ${expected.unit || ''}`.trim(),
+            deadlineAt: new Date(deadlineMs).toISOString(),
+            delayDuration: `${delayMinutes} دقيقة`,
+            status: item.status || 'قيد التفعيل'
+          };
+          if (!bestOverdue || deadlineMs < new Date(bestOverdue.deadlineAt).getTime()) {
+            bestOverdue = row;
+          }
+        }
+      });
+      if (bestOverdue) rows.push(bestOverdue);
+    });
+    return rows;
+  };
+
+  const mergeOverdueRows = (serverRows, localRows) => {
+    const seen = new Set();
+    const merged = [];
+    (serverRows || []).forEach(row => {
+      const id = Number(row && row.dossierId);
+      if (Number.isFinite(id) && !seen.has(id)) {
+        seen.add(id);
+        merged.push(row);
+      }
+    });
+    (localRows || []).forEach(row => {
+      const id = Number(row && row.dossierId);
+      if (Number.isFinite(id) && !seen.has(id)) {
+        seen.add(id);
+        merged.push(row);
+      }
+    });
+    return merged;
+  };
+
+  const getArchiveOverdueUniqueCount = () => {
+    const ids = new Set();
+    getLocalArchiveOverdueRows().forEach(r => {
+      const id = Number(r.dossierId);
+      if (Number.isFinite(id)) ids.add(id);
+    });
+    if (window.__overdueDossierIds && typeof window.__overdueDossierIds.size === 'number') {
+      Array.from(window.__overdueDossierIds).forEach(id => {
+        const num = Number(id);
+        if (Number.isFinite(num)) ids.add(num);
+      });
+    }
+    return ids.size;
   };
 
   // Enhance dashboard stats with archive-specific counts
@@ -1013,16 +1143,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const archiveListEl = document.getElementById('archiveListCount');
   if (archiveListEl) archiveListEl.textContent = itemsArchive.length;
   if (archiveLateEl) {
-    // Prefer local cached set if available
     try {
-      if (window.__overdueDossierIds && typeof window.__overdueDossierIds.size === 'number') {
-        archiveLateEl.textContent = window.__overdueDossierIds.size;
-      } else {
-        // Fetch short list from API to compute count (non-blocking)
-        fetch(`${API_BASE}/overdue-dossiers`).then(r => r.json()).then(rows => {
-          archiveLateEl.textContent = Array.isArray(rows) ? rows.length : 0;
-        }).catch(() => { /* ignore errors for stats */ });
-      }
+      archiveLateEl.textContent = getArchiveOverdueUniqueCount();
     } catch (e) { /* ignore */ }
   }
 
@@ -3107,6 +3229,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (statsSection) statsSection.style.display = 'none';
     window.scrollTo({ top: 0, behavior: 'smooth' });
     try { attachLocalBackToCurrentView(); } catch (e) {}
+    try { renderArchiveLate(); } catch (e) {}
     try { showArchivesTopNav('late'); } catch (e) {}
   };
   if (archiveLateCard) archiveLateCard.addEventListener('click', () => openArchiveLate(true));
@@ -3999,6 +4122,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
         renderArchive();
+        updateDashboardStats();
+        try { if (archivesLateView && archivesLateView.style.display !== 'none') renderArchiveLate(); } catch (e) {}
         // after save: display the archives list view only
         const view = document.getElementById('archiveNewView'); if (view) view.style.display = 'none';
         const cards = document.querySelector('.archives-cards'); if (cards) cards.style.display = 'none';
