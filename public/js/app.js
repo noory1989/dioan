@@ -235,7 +235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     rows.forEach(r => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${r.dossierNumber}</td>
+        <td>${r.projectName}</td>
         <td>${r.currentDepartment}</td>
         <td>${r.assignedDuration}</td>
         <td>${r.deadlineAt ? (new Date(r.deadlineAt)).toLocaleString('ar-SY') : '-'}</td>
@@ -1086,7 +1086,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const delayMinutes = Math.max(0, Math.round((now - deadlineMs) / 60000));
           const row = {
             dossierId: item.id,
-            dossierNumber: item.id,
+            projectName: item.projectName || item.subject || item.recipient || 'غير مسمى',
             currentDepartment: sectionLabels[section],
             assignedDuration: `${expected.value || 0} ${expected.unit || ''}`.trim(),
             deadlineAt: new Date(deadlineMs).toISOString(),
@@ -1282,11 +1282,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           sourceList = sourceList.filter(it => transferredIds.has(String(it.id)));
         } catch (e) { /* ignore and fallback to full list */ }
     }
-    // filter out dossiers that are marked overdue (appear in overdue_dossiers)
-    const overdueSet = window.__overdueDossierIds || new Set();
-    let filtered = sourceList.filter(it => {
-      if (it && (it.isOverdue || it.is_overdue)) return false;
-      try { if (overdueSet.has(Number(it.id))) return false; } catch (e) {}
+    const filtered = sourceList.filter(it => {
       if (!filter) return true;
       return Object.values(it).join(' ').toLowerCase().includes(filter.toLowerCase());
     });
@@ -3190,8 +3186,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.tab-content').forEach(c => { if (c.id === 'archives') c.style.display = ''; else c.style.display = 'none'; });
     const cards = document.querySelector('.archives-cards'); if (cards) cards.style.display = 'none';
     if (archivesListView) archivesListView.style.display = '';
-    // hide new archive form if open
+    // hide new archive form and overdue view if open
     const newView = document.getElementById('archiveNewView'); if (newView) newView.style.display = 'none';
+    if (archivesLateView) archivesLateView.style.display = 'none';
     if (statsSection) statsSection.style.display = 'none';
     try { await loadArchive(); } catch (e) {}
     // Ensure circle-mail transfer records and histories are loaded so transferred archives appear
