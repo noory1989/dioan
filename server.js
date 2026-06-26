@@ -104,6 +104,82 @@ const normalizePayload = (payload) => ({
       : JSON.stringify([]),
 });
 
+const computeDeadlineAt = (expectedDurationDays, startAt = new Date()) => {
+  if (expectedDurationDays === undefined || expectedDurationDays === null) return null;
+  const days = Number(expectedDurationDays);
+  if (!Number.isFinite(days) || days <= 0) return null;
+  const startDate = startAt instanceof Date ? startAt : new Date(startAt);
+  if (Number.isNaN(startDate.getTime())) return null;
+  return new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
+};
+
+const parseExpectedDurationDays = (body = {}) => {
+  if (body.expected_duration_days !== undefined && body.expected_duration_days !== null) return Number(body.expected_duration_days);
+  if (body.expectedDurationDays !== undefined && body.expectedDurationDays !== null) return Number(body.expectedDurationDays);
+  if (body.expected_duration_minutes !== undefined && body.expected_duration_minutes !== null) return Number(body.expected_duration_minutes) / 1440;
+  if (body.expectedDurationMinutes !== undefined && body.expectedDurationMinutes !== null) return Number(body.expectedDurationMinutes) / 1440;
+  return null;
+};
+
+const buildCircleMailWorkflowValues = (body = {}) => {
+  const expectedDurationDays = parseExpectedDurationDays(body);
+  if (!expectedDurationDays) return {};
+  const durationStartedAt = body.durationStartedAt || body.duration_started_at || new Date();
+  const expectedDurationMinutes = (body.expectedDurationMinutes !== undefined && body.expectedDurationMinutes !== null)
+    ? Number(body.expectedDurationMinutes)
+    : (body.expected_duration_minutes !== undefined && body.expected_duration_minutes !== null)
+      ? Number(body.expected_duration_minutes)
+      : Math.round(expectedDurationDays * 24 * 60);
+  return {
+    expectedDurationDays,
+    expectedDurationMinutes,
+    durationStartedAt,
+    deadlineAt: computeDeadlineAt(expectedDurationDays, durationStartedAt),
+    isOverdue: false,
+  };
+};
+
+// Normalize status values to application canonical Arabic labels
+const normalizeStatusValue = (s) => {
+  if (s === undefined || s === null) return 'قيد العمل';
+  try {
+    const v = String(s).trim().toLowerCase();
+    if (!v) return 'قيد العمل';
+    if (v === 'finished' || v === 'منتهي' || v === 'منتهية' || v === 'ended') return 'منتهية';
+    if (v === 'overdue' || v.includes('تأخر') || v === 'متأخرة') return 'متأخرة';
+    // treat 'open' and other values as in-progress
+    return 'قيد العمل';
+  } catch (e) { return 'قيد العمل'; }
+};
+
+const hasActiveOwnerForOverdue = (cm = {}) => {
+  const hasDepartmentId = cm.currentDepartmentId !== undefined && cm.currentDepartmentId !== null && String(cm.currentDepartmentId).trim() !== '';
+  const hasCircleName = Boolean(cm.circleName && String(cm.circleName).trim());
+  return hasDepartmentId || hasCircleName;
+};
+
+const clearPreviousCircleMailWorkflowState = async (cmRepo, sourceEntity, sourceId, currentId) => {
+  if (!cmRepo || !sourceEntity || sourceId === undefined || sourceId === null) return;
+  await cmRepo.createQueryBuilder()
+    .update()
+    .set({
+      currentDepartmentId: null,
+      isTransferred: true,
+      isOverdue: false,
+      deadlineAt: null,
+      durationStartedAt: null,
+      expectedDurationDays: null,
+      expectedDurationMinutes: null,
+      lockedAt: null,
+    })
+    .where('sourceEntity = :sourceEntity AND ((sourceId = :sourceId) OR (:sourceId IS NULL AND sourceId IS NULL)) AND id != :currentId', {
+      sourceEntity,
+      sourceId: Number(sourceId),
+      currentId,
+    })
+    .execute();
+};
+
 const getRepository = (entityName) => AppDataSource.getRepository(entityName);
 
 const createEntityRoutes = (routeBase, entityName) => {
@@ -217,19 +293,11 @@ const createEntityRoutes = (routeBase, entityName) => {
                 circleName: body.circleName,
                 payload: typeof srcCopy === 'string' ? srcCopy : JSON.stringify(srcCopy), // store full source
                 attachments: attachmentsValue,
-                status: body.status || 'open',
+                status: normalizeStatusValue(body.status || 'open'),
                 alerted: body.alerted || false,
                 // optional dossier/workflow fields
                   currentDepartmentId: body.currentDepartmentId || body.current_department_id || null,
-                  // support duration in minutes OR days (client may send expectedDurationDays)
-                  expectedDurationMinutes: (function() {
-                    if (body.expectedDurationMinutes !== undefined) return Number(body.expectedDurationMinutes);
-                    if (body.expected_duration_minutes !== undefined) return Number(body.expected_duration_minutes);
-                    if (body.expectedDurationDays !== undefined) return Number(body.expectedDurationDays) * 24 * 60;
-                    if (body.expected_duration_days !== undefined) return Number(body.expected_duration_days) * 24 * 60;
-                    return null;
-                  })(),
-                  durationStartedAt: body.durationStartedAt || body.duration_started_at || null,
+                  ...buildCircleMailWorkflowValues(body),
                 isLocked: (body.isLocked !== undefined ? body.isLocked : (body.is_locked !== undefined ? body.is_locked : false)),
                 isTransferred: (body.isTransferred !== undefined ? body.isTransferred : false),
               };
@@ -237,6 +305,17 @@ const createEntityRoutes = (routeBase, entityName) => {
               console.log('CircleMail create: saving new circle mail with attachments type', typeof toSave.attachments);
               const saved = await cmRepo.save(created);
               console.log('CircleMail create: saved id', saved && saved.id, 'stored attachments present?', !!(saved && saved.attachments));
+
+              // If this CircleMail was created as part of a transfer from another circle,
+              // clear overdue state and deadline info on previous circle records for the same source.
+              if (body.fromCircle && body.sourceEntity && (body.sourceId !== undefined && body.sourceId !== null)) {
+                try {
+                  await clearPreviousCircleMailWorkflowState(cmRepo, body.sourceEntity, body.sourceId, saved.id);
+                } catch (e) {
+                  console.warn('CircleMail transfer cleanup failed for previous circle records:', e);
+                }
+              }
+
               return res.json(sanitizeRecord(saved));
             }
           }
@@ -262,25 +341,25 @@ const createEntityRoutes = (routeBase, entityName) => {
             circleName: req.body.circleName || (req.body.sourceEntity ? `دفعة-${Date.now()}` : 'عام'),
             payload: payloadValue,
             attachments: attachmentsValue,
-            status: req.body.status || 'open',
+            status: normalizeStatusValue(req.body.status || 'open'),
             alerted: req.body.alerted || false,
-            // optional dossier/workflow fields
             currentDepartmentId: req.body.currentDepartmentId || req.body.current_department_id || null,
-            // support duration in minutes OR days
-            expectedDurationMinutes: (function() {
-              if (req.body.expectedDurationMinutes !== undefined) return Number(req.body.expectedDurationMinutes);
-              if (req.body.expected_duration_minutes !== undefined) return Number(req.body.expected_duration_minutes);
-              if (req.body.expectedDurationDays !== undefined) return Number(req.body.expectedDurationDays) * 24 * 60;
-              if (req.body.expected_duration_days !== undefined) return Number(req.body.expected_duration_days) * 24 * 60;
-              return null;
-            })(),
-            durationStartedAt: req.body.durationStartedAt || req.body.duration_started_at || null,
+            ...buildCircleMailWorkflowValues(req.body),
             isLocked: (req.body.isLocked !== undefined ? req.body.isLocked : (req.body.is_locked !== undefined ? req.body.is_locked : false)),
             isTransferred: (req.body.isTransferred !== undefined ? req.body.isTransferred : false),
             deletedAt: req.body.deletedAt || req.body.deleted_at || null,
           };
           const created = cmRepo.create(toSave);
           const saved = await cmRepo.save(created);
+
+          if (req.body && req.body.fromCircle && req.body.sourceEntity && (req.body.sourceId !== undefined && req.body.sourceId !== null)) {
+            try {
+              await clearPreviousCircleMailWorkflowState(cmRepo, req.body.sourceEntity, req.body.sourceId, saved.id);
+            } catch (e) {
+              console.warn('CircleMail transfer cleanup failed for previous circle records:', e);
+            }
+          }
+
           return res.json(sanitizeRecord(saved));
         }
         // default behaviour when no payload provided
@@ -291,8 +370,21 @@ const createEntityRoutes = (routeBase, entityName) => {
           const rt = String(req.body.record_type || '').toLowerCase();
           req.body.payload = JSON.stringify({ recordCategory: rt.includes('اضاب') ? 'DOSSIER' : 'MAIL' });
         }
-        const record = getRepository(entityName).create(normalizePayload(req.body));
+        const recordData = entityName === 'CircleMail'
+          ? normalizePayload({ ...req.body, status: normalizeStatusValue(req.body.status || 'open'), ...buildCircleMailWorkflowValues(req.body) })
+          : normalizePayload(req.body);
+        const record = getRepository(entityName).create(recordData);
         const saved = await getRepository(entityName).save(record);
+
+        if (entityName === 'CircleMail' && req.body && req.body.fromCircle && req.body.sourceEntity && (req.body.sourceId !== undefined && req.body.sourceId !== null)) {
+          try {
+            const cmRepo = getRepository('CircleMail');
+            await clearPreviousCircleMailWorkflowState(cmRepo, req.body.sourceEntity, req.body.sourceId, saved.id);
+          } catch (e) {
+            console.warn('CircleMail transfer cleanup failed for previous circle records:', e);
+          }
+        }
+
         return res.json(sanitizeRecord(saved));
       }
 
@@ -336,7 +428,9 @@ const createEntityRoutes = (routeBase, entityName) => {
           newBody.recordCategory = existingCategory;
         }
 
-        await repo.update(id, normalizePayload(newBody));
+        const workflowValues = buildCircleMailWorkflowValues(newBody);
+        const normalizedUpdates = normalizePayload({ ...newBody, ...workflowValues });
+        await repo.update(id, normalizedUpdates);
         const updated = await repo.findOneBy({ id });
         return res.json(sanitizeRecord(updated));
       }
@@ -392,7 +486,7 @@ app.post('/api/dossiers', async (req, res) => {
   try {
     const body = req.body || {};
     const cmRepo = getRepository('CircleMail');
-    const now = new Date();
+    const workflowValues = buildCircleMailWorkflowValues(body);
 
     const toSave = {
       sourceEntity: body.sourceEntity || 'archive',
@@ -400,20 +494,12 @@ app.post('/api/dossiers', async (req, res) => {
       circleName: body.circleName || (body.circle_name || 'الأضابير'),
       payload: body.payload ? (typeof body.payload === 'string' ? body.payload : JSON.stringify(body.payload)) : JSON.stringify({}),
       attachments: body.attachments ? (typeof body.attachments === 'string' ? body.attachments : JSON.stringify(body.attachments)) : null,
-      status: body.status || 'open',
+      status: normalizeStatusValue(body.status || 'open'),
       alerted: body.alerted || false,
-      // workflow fields required by the user
       currentDepartmentId: body.current_department_id || body.currentDepartmentId || null,
-      // accept duration in minutes or days
-      expectedDurationMinutes: (function() {
-        if (body.expected_duration_minutes !== undefined) return Number(body.expected_duration_minutes);
-        if (body.expectedDurationMinutes !== undefined) return Number(body.expectedDurationMinutes);
-        if (body.expected_duration_days !== undefined) return Number(body.expected_duration_days) * 24 * 60;
-        if (body.expectedDurationDays !== undefined) return Number(body.expectedDurationDays) * 24 * 60;
-        return null;
-      })(),
-      durationStartedAt: now,
+      ...workflowValues,
       lockedAt: null,
+      isTransferred: false,
     };
 
     const record = cmRepo.create(normalizePayload(toSave));
@@ -425,7 +511,7 @@ app.post('/api/dossiers', async (req, res) => {
   }
 });
 
-// Scheduler: check for overdue dossiers and populate overdue_dossiers table
+// Scheduler: check live CircleMail records for overdue dossiers using the stored deadline
 const startOverdueChecker = async () => {
   if (!dbReady) return;
   try {
@@ -449,16 +535,24 @@ const startOverdueChecker = async () => {
       try {
         const key = (cm.sourceId === undefined || cm.sourceId === null) ? `id::${cm.id}` : `${cm.sourceEntity || ''}::${cm.sourceId}`;
         const currentCm = latestBySource.get(key);
+        const hasActiveOwner = hasActiveOwnerForOverdue(cm);
+        const hasActiveCountdown = cm.durationStartedAt !== null && cm.durationStartedAt !== undefined && cm.expectedDurationMinutes !== null && cm.expectedDurationMinutes !== undefined;
+        const isFinishedStatus = (cm.status === 'finished' || cm.status === 'منتهية');
         const shouldBeOverdue = currentCm && currentCm.id === cm.id &&
-          !cm.isTransferred &&
-          cm.status !== 'finished' &&
-          cm.durationStartedAt &&
-          cm.expectedDurationMinutes &&
-          !isNaN(new Date(cm.durationStartedAt).getTime()) &&
-          (Date.now() > new Date(cm.durationStartedAt).getTime() + Number(cm.expectedDurationMinutes) * 60 * 1000);
+          !isFinishedStatus &&
+          hasActiveOwner &&
+          hasActiveCountdown &&
+          cm.deadlineAt &&
+          !isNaN(new Date(cm.deadlineAt).getTime()) &&
+          (Date.now() > new Date(cm.deadlineAt).getTime());
 
         if (cm.isOverdue !== Boolean(shouldBeOverdue)) {
-          await cmRepo.update(cm.id, { isOverdue: Boolean(shouldBeOverdue) });
+          const newVals = { isOverdue: Boolean(shouldBeOverdue) };
+          // Only adjust status for non-finished records
+          if (!isFinishedStatus) {
+            newVals.status = shouldBeOverdue ? normalizeStatusValue('overdue') : normalizeStatusValue('open');
+          }
+          await cmRepo.update(cm.id, newVals);
         }
       } catch (innerErr) {
         console.warn('Overdue checker row update failed for circle_mail id', cm.id, innerErr);
@@ -588,10 +682,15 @@ app.post('/api/circlemail/update-by-key', async (req, res) => {
     if (!found) return res.status(404).json({ error: 'Circle mail not found' });
     // Prevent modifications when circle mail is finished, except allowing reopen (status: 'open')
     const isUnfinish = updates && updates.status === 'open';
-    if (found.status === 'finished' && !isUnfinish) {
+    if ((found.status === 'finished' || found.status === 'منتهية') && !isUnfinish) {
       return res.status(403).json({ error: 'هذه المعاملة مُنهية ولا يمكن تعديلها' });
     }
-    await repo.update(found.id, updates || {});
+
+    const workflowValues = buildCircleMailWorkflowValues(updates || {});
+    // normalize incoming status if present
+    const incoming = { ...(updates || {}), ...workflowValues };
+    if (incoming.status !== undefined && incoming.status !== null) incoming.status = normalizeStatusValue(incoming.status);
+    await repo.update(found.id, incoming);
     const updated = await repo.findOneBy({ id: found.id });
     res.json(updated);
   } catch (err) {
@@ -620,7 +719,7 @@ app.post('/api/history/by-key', async (req, res) => {
         console.log('History by-key: resolved circlemail found', found && found.id);
         if (found) {
           // Prevent creating history on a finished circle mail
-          if (found.status === 'finished') return res.status(403).json({ error: 'هذه المعاملة مُنهية ولا يمكن تعديلها' });
+          if (found.status === 'finished' || found.status === 'منتهية') return res.status(403).json({ error: 'هذه المعاملة مُنهية ولا يمكن تعديلها' });
           payload.circleMailId = found.id;
         }
       }
@@ -643,7 +742,7 @@ app.post('/api/dossiers/transfer', async (req, res) => {
     if (!sourceId || !targetDepartmentId) return res.status(400).json({ error: 'Missing sourceId or targetDepartmentId' });
 
     const cmRepo = getRepository('CircleMail');
-    const odRepo = getRepository('Overdue');
+    // the old overdue_dossiers table is no longer used for live delayed dossier status
     const historyRepo = getRepository('History');
 
     const se = sourceEntity || 'archive';
@@ -655,32 +754,45 @@ app.post('/api/dossiers/transfer', async (req, res) => {
     const now = new Date();
     const updates = {
       currentDepartmentId: Number(targetDepartmentId),
-      expectedDurationMinutes: (function() {
-        if (expectedDurationMinutes !== undefined && expectedDurationMinutes !== null) return Number(expectedDurationMinutes);
-        if (expectedDurationDays !== undefined && expectedDurationDays !== null) return Number(expectedDurationDays) * 24 * 60;
-        return target.expectedDurationMinutes;
-      })(),
-      durationStartedAt: now,
-      // mark as not transferred yet for this new assignment
-      isTransferred: false,
+      expectedDurationDays: null,
+      expectedDurationMinutes: null,
+      durationStartedAt: null,
+      deadlineAt: null,
+      isOverdue: false,
       lockedAt: null,
-      // optionally update circleName when provided
+      isTransferred: false,
+      status: normalizeStatusValue('open'),
       ...(circleName ? { circleName } : {}),
     };
 
-    await cmRepo.update(target.id, updates);
-    const updated = await cmRepo.findOneBy({ id: target.id });
-
-    // Immediately clear live overdue flag for this dossier and resolve any pending overdue entries
+    let updated = target;
     try {
-      await cmRepo.update(target.id, { isOverdue: false });
-    } catch (e) { console.warn('Failed to clear isOverdue on transfer:', e); }
+      await cmRepo.update(target.id, updates);
+      updated = await cmRepo.findOneBy({ id: target.id });
+    } catch (e) { console.warn('Failed to clear overdue state on transfer:', e); }
 
-    // Resolve any pending overdue entries for this dossier
+    // The live overdue status is now stored on circle_mail directly; no separate overdue table is required.
     try {
-      const pendings = await odRepo.find({ where: { dossierId: Number(sourceId), status: 'pending' } });
-      for (const p of pendings) { p.status = 'resolved'; await odRepo.save(p); }
-    } catch (e) { console.warn('Failed to resolve overdue entries:', e); }
+      await clearPreviousCircleMailWorkflowState(cmRepo, se, Number(sourceId), updated.id);
+      await cmRepo.createQueryBuilder()
+        .update()
+        .set({
+          isOverdue: false,
+          deadlineAt: null,
+          durationStartedAt: null,
+          expectedDurationDays: null,
+          expectedDurationMinutes: null,
+          lockedAt: null,
+        })
+        .where('sourceEntity = :sourceEntity AND sourceId = :sourceId AND id != :currentId', {
+          sourceEntity: se,
+          sourceId: Number(sourceId),
+          currentId: updated.id,
+        })
+        .execute();
+    } catch (e) {
+      console.warn('Failed to clear previous workflow state on transfer:', e);
+    }
 
     // Create a history entry for the transfer
     try {
@@ -707,36 +819,30 @@ app.get('/api/overdue-dossiers', async (req, res) => {
     // allow optional filters: departmentId and transferStatus (PENDING -> isTransferred = false)
     const params = [];
     let sql = `SELECT cm.id, cm.sourceEntity AS sourceEntity, cm.sourceId AS sourceId, cm.currentDepartmentId AS currentDepartmentId, cm.circleName as circle_name,
-              cm.status, cm.expectedDurationMinutes AS expectedDurationMinutes, cm.durationStartedAt AS durationStartedAt, cm.isOverdue AS isOverdue
+              cm.status, cm.expectedDurationDays AS expectedDurationDays, cm.expectedDurationMinutes AS expectedDurationMinutes, cm.durationStartedAt AS durationStartedAt, cm.deadlineAt AS deadlineAt, cm.isOverdue AS isOverdue
        FROM circle_mail cm
+       JOIN (
+         SELECT MAX(id) AS id
+         FROM circle_mail
+         WHERE deletedAt IS NULL AND (isTransferred = 0 OR isTransferred IS NULL)
+         GROUP BY sourceEntity, sourceId
+       ) latest ON latest.id = cm.id
        WHERE cm.isOverdue = 1
-         AND cm.durationStartedAt IS NOT NULL
-         AND cm.expectedDurationMinutes IS NOT NULL
-         AND cm.currentDepartmentId IS NOT NULL`;
+         AND (cm.currentDepartmentId IS NOT NULL OR cm.circleName IS NOT NULL)
+         AND cm.deletedAt IS NULL
+         AND (cm.isTransferred = 0 OR cm.isTransferred IS NULL)`;
 
     if (req.query && req.query.departmentId) {
       sql += ' AND cm.currentDepartmentId = ?';
       params.push(Number(req.query.departmentId));
     }
-    if (req.query && req.query.transferStatus) {
-      const ts = String(req.query.transferStatus).toUpperCase();
-      if (ts === 'PENDING') {
-        sql += ' AND cm.isTransferred = 0';
-      } else if (ts === 'COMPLETED') {
-        sql += ' AND cm.isTransferred = 1';
-      }
-    }
-
-    sql += ' ORDER BY TIMESTAMPDIFF(SECOND, DATE_ADD(cm.durationStartedAt, INTERVAL cm.expectedDurationMinutes MINUTE), NOW()) DESC';
+    sql += ' ORDER BY cm.durationStartedAt ASC';
 
     const rows = await AppDataSource.manager.query(sql, params);
 
     const out = (rows || []).map(r => {
-      const startedAt = r.durationStartedAt ? new Date(r.durationStartedAt) : null;
-      const durationMinutes = Number(r.expectedDurationMinutes) || 0;
-      const deadlineMs = startedAt ? startedAt.getTime() + durationMinutes * 60 * 1000 : null;
-      const deadlineAt = deadlineMs ? new Date(deadlineMs).toISOString() : null;
-      const delayMinutes = deadlineMs ? Math.max(0, Math.round((Date.now() - deadlineMs) / 60000)) : 0;
+      const deadlineAt = r.deadlineAt ? new Date(r.deadlineAt).toISOString() : null;
+      const delayMinutes = r.deadlineAt ? Math.max(0, Math.round((Date.now() - new Date(r.deadlineAt).getTime()) / 60000)) : 0;
       const formatDuration = (mins) => {
         if (!Number.isFinite(mins) || mins <= 0) return '0 دقيقة';
         const days = Math.floor(mins / 1440);
@@ -749,6 +855,7 @@ app.get('/api/overdue-dossiers', async (req, res) => {
         return parts.join(' ');
       };
 
+      const durationMinutes = Number(r.expectedDurationMinutes) || 0;
       const title = `أضبارة #${r.sourceId || r.id}`;
       return {
         id: r.id,
@@ -777,15 +884,16 @@ app.post('/api/overdue-dossiers/resolve', async (req, res) => {
     const { id, dossierId } = req.body || {};
     if (!id && !dossierId) return res.status(400).json({ error: 'Missing id or dossierId' });
 
+    const openStatus = normalizeStatusValue('open');
     if (dossierId) {
       try {
-        await AppDataSource.manager.query(`UPDATE circle_mail SET is_overdue = 0 WHERE source_id = ?`, [dossierId]);
+        await AppDataSource.manager.query(`UPDATE circle_mail SET is_overdue = 0, deadlineAt = NULL, status = ? WHERE source_id = ?`, [openStatus, dossierId]);
       } catch (e) { console.warn('Failed to clear is_overdue by dossierId:', e); }
     }
 
     if (id) {
       try {
-        await AppDataSource.manager.query(`UPDATE overdue_dossiers SET status = 'resolved' WHERE id = ?`, [id]);
+        await AppDataSource.manager.query(`UPDATE circle_mail SET is_overdue = 0, deadlineAt = NULL, status = ? WHERE id = ?`, [openStatus, id]);
       } catch (e) { console.warn('Failed to resolve overdue record row:', e); }
     }
 
@@ -860,7 +968,7 @@ app.post('/api/circlemail/append-attachments-by-key', async (req, res) => {
     const found = await cmRepo.findOneBy({ sourceEntity, sourceId, circleName });
     if (!found) return res.status(404).json({ error: 'Circle mail not found' });
     // Prevent appending attachments to a finished circle mail
-    if (found.status === 'finished') return res.status(403).json({ error: 'هذه المعاملة مُنهية ولا يمكن تعديلها' });
+    if (found.status === 'finished' || found.status === 'منتهية') return res.status(403).json({ error: 'هذه المعاملة مُنهية ولا يمكن تعديلها' });
     let existing = [];
     try { existing = found.attachments ? JSON.parse(found.attachments) : []; } catch (e) { existing = []; }
     const toAppend = Array.isArray(attachments) ? attachments : [];

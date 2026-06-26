@@ -603,10 +603,12 @@
                       <div class="archive-info-right">
                         <label for="archiveStatus" class="small-label">حالة الأضبارة:</label>
                         <select id="archiveStatus" class="archive-status-select">
-                          <option value="قيد التفعيل">قيد التفعيل</option>
-                          <option value="مغلقة">مغلقة</option>
-                          <option value="مؤرشفة">مؤرشفة</option>
+                          <option value="قيد العمل">قيد العمل</option>
+                          <option value="متأخرة">متأخرة</option>
+                          <option value="منتهية">منتهية</option>
                         </select>
+                        <label for="archiveDepartment" class="small-label" style="margin-top:8px;display:block">الدائرة الحالية:</label>
+                        <input id="archiveDepartment" class="archive-status-select" type="text" placeholder="مثال: الدراسات أو ديوان الشؤون الفنية" />
                         <!-- Keep readonly display field for compatibility with existing JS that may read it -->
                         <input id="archiveStatusDisplay" type="text" readonly style="margin-top:8px;display:none" />
                       </div>
@@ -1071,6 +1073,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="js/archiveTransferState.js"></script>
     <script src="js/app.js"></script>
     <!-- أزرار التنقل لأعلى وأسفل الصفحة -->
     <button id="scrollToTopBtn" class="scroll-btn top-btn" title="الذهاب للأعلى">

@@ -18,8 +18,10 @@ module.exports = new EntitySchema({
     alerted: { type: 'boolean', default: false },
     // Dossier timing and workflow fields
     currentDepartmentId: { type: 'int', nullable: true },
+    expectedDurationDays: { type: 'int', nullable: true },
     expectedDurationMinutes: { type: 'int', nullable: true },
     durationStartedAt: { type: 'datetime', nullable: true },
+    deadlineAt: { type: 'datetime', nullable: true },
     isLocked: { type: 'boolean', default: false },
     isTransferred: { type: 'boolean', default: false },
     deletedAt: { type: 'datetime', nullable: true },

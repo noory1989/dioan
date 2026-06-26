@@ -201,6 +201,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const delayTd = document.createElement('td'); delayTd.textContent = r.delayDuration || '-';
       const statusTd = document.createElement('td'); statusTd.textContent = r.status || '-';
       const actionTd = document.createElement('td');
+      const archiveItem = (itemsArchive || []).find(item => String(item.id) === String(r.dossierId));
       const resolveBtn = document.createElement('button'); resolveBtn.className = 'btn small'; resolveBtn.textContent = 'إزالة التأخير';
       resolveBtn.addEventListener('click', async () => {
         try {
@@ -208,6 +209,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           loadOverdueDossiers();
         } catch (e) { alert('فشل في إزالة حالة التأخير: ' + (e.message || e)); }
       });
+      const openBtn = document.createElement('button'); openBtn.className = 'btn small'; openBtn.textContent = 'فتح الأضبارة';
+      openBtn.addEventListener('click', () => {
+        if (archiveItem) openArchiveRecord(archiveItem);
+        else alert('لم يتم العثور على هذه الأضبارة في السجل المحلي.');
+      });
+      actionTd.appendChild(openBtn);
       actionTd.appendChild(resolveBtn);
       tr.appendChild(numberTd);
       tr.appendChild(deptTd);
@@ -234,6 +241,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     tbody.innerHTML = '';
     rows.forEach(r => {
       const tr = document.createElement('tr');
+      const archiveItem = (itemsArchive || []).find(item => String(item.id) === String(r.dossierId));
       tr.innerHTML = `
         <td>${r.projectName}</td>
         <td>${r.currentDepartment}</td>
@@ -241,8 +249,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         <td>${r.deadlineAt ? (new Date(r.deadlineAt)).toLocaleString('ar-SY') : '-'}</td>
         <td>${r.delayDuration}</td>
         <td>${r.status}</td>
+        <td>
+          <button class="btn small" data-action="open-archive">فتح الأضبارة</button>
+        </td>
       `;
+      const openBtn = tr.querySelector('[data-action="open-archive"]');
+      if (openBtn) {
+        openBtn.addEventListener('click', () => {
+          if (archiveItem) openArchiveRecord(archiveItem);
+          else alert('لم يتم العثور على هذه الأضبارة في السجل المحلي.');
+        });
+      }
       tbody.appendChild(tr);
+    });
+  };
+
+  const showArchiveSubview = (viewId) => {
+    ['archiveNewView','archivesListView','archivesLateView'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.display = (id === viewId ? '' : 'none');
     });
   };
 
@@ -331,8 +357,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       formEl._attachments = {};
     }
     // default status for new record and default date/enteredBy
-    const statusEl = document.getElementById('archiveStatus'); if (statusEl) statusEl.value = 'قيد التفعيل';
-    const statusDisplay = document.getElementById('archiveStatusDisplay'); if (statusDisplay) statusDisplay.value = 'قيد التفعيل';
+    const statusEl = document.getElementById('archiveStatus'); if (statusEl) statusEl.value = 'قيد العمل';
+    const departmentEl = document.getElementById('archiveDepartment'); if (departmentEl) departmentEl.value = '';
+    const statusDisplay = document.getElementById('archiveStatusDisplay'); if (statusDisplay) statusDisplay.value = 'قيد العمل';
     const createDateEl = document.getElementById('archiveCreateDate'); if (createDateEl) createDateEl.value = (new Date()).toISOString().slice(0,10);
     const enteredBy = (currentUser && (currentUser.name || currentUser.username)) ? (currentUser.name || currentUser.username) : '';
     ['studies_enteredBy','tech_enteredBy','gov_enteredBy','legal_enteredBy','gov2_enteredBy'].forEach(id => { const el = document.getElementById(id); if (el) el.value = enteredBy; });
@@ -1047,6 +1074,98 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  const archiveSectionLabels = {
+    studies: 'الدراسات',
+    tech: 'ديوان الشؤون الفنية',
+    gov: 'الجهات الحكومية',
+    legal: 'القانونية',
+    gov2: 'أخرى'
+  };
+
+  const getArchiveBaseStatus = (status) => {
+    const text = String(status || '').trim();
+    if (!text) return 'قيد العمل';
+    if (text.includes('متأخرة') || text === 'overdue' || text === 'late') return 'متأخرة';
+    if (text.includes('منتهية') || text === 'منتهي' || text === 'finished') return 'منتهية';
+    return 'قيد العمل';
+  };
+
+  const buildArchiveStatusValue = (baseStatus, department = '') => {
+    const dep = String(department || '').trim();
+    if (!dep) return baseStatus || 'قيد العمل';
+    return `${baseStatus || 'قيد العمل'} - ${dep}`;
+  };
+
+  const parseArchiveStatus = (status) => {
+    const text = String(status || '').trim();
+    if (!text) return { base: 'قيد العمل', department: '' };
+    const match = text.match(/^(قيد العمل|متأخرة|منتهية)\s*-\s*(.+)$/);
+    if (match) return { base: match[1], department: match[2].trim() };
+    return { base: getArchiveBaseStatus(text), department: '' };
+  };
+
+  const inferArchiveDepartmentFromItem = (item) => {
+    if (!item) return '';
+    const departmentFromItem = item.department || item.currentDepartment || item.circleName || item.currentDepartmentName || '';
+    if (departmentFromItem) return String(departmentFromItem).trim();
+    for (const [section, label] of Object.entries(archiveSectionLabels)) {
+      const sectionData = item[section];
+      if (sectionData && (sectionData.savedAt || (sectionData.expected && String(sectionData.expected.value || '').trim()))) return label;
+    }
+    return '';
+  };
+
+  const isArchiveFinishedStatus = (status) => {
+    const text = String(status || '').trim();
+    return text.includes('منتهية') || text === 'منتهي' || text === 'finished';
+  };
+
+  const getArchiveDepartmentFromStatus = (status) => parseArchiveStatus(status).department;
+
+  const getArchiveStatusDisplayValue = (status) => {
+    const parsed = parseArchiveStatus(status);
+    return buildArchiveStatusValue(parsed.base, parsed.department);
+  };
+
+  const getArchiveOverdueDepartmentForItem = (item) => {
+    if (!item) return '';
+    const now = Date.now();
+    const sectionOrder = ['studies','tech','gov','legal','gov2'];
+    for (const section of sectionOrder) {
+      const sectionData = item[section];
+      const expected = sectionData && sectionData.expected;
+      const savedAt = sectionData && sectionData.savedAt;
+      if (!expected || !savedAt) continue;
+      const minutes = convertExpectedToMinutes(expected.value, expected.unit);
+      if (minutes <= 0) continue;
+      const savedTimestamp = new Date(savedAt).getTime();
+      if (isNaN(savedTimestamp)) continue;
+      if (savedTimestamp + minutes * 60 * 1000 <= now) {
+        return archiveSectionLabels[section];
+      }
+    }
+    return '';
+  };
+
+  const syncArchiveStatuses = () => {
+    if (!Array.isArray(itemsArchive)) return;
+    itemsArchive.forEach(item => {
+      if (!item) return;
+      if (isArchiveFinishedStatus(item.status)) {
+        item.status = 'منتهية';
+        return;
+      }
+      const overdueDepartment = getArchiveOverdueDepartmentForItem(item);
+      if (overdueDepartment) {
+        item.status = buildArchiveStatusValue('متأخرة', overdueDepartment);
+        return;
+      }
+      const parsed = parseArchiveStatus(item.status);
+      const department = inferArchiveDepartmentFromItem(item) || parsed.department || item.lastTransferredTo || '';
+      item.status = buildArchiveStatusValue('قيد العمل', department);
+    });
+  };
+
   const convertExpectedToMinutes = (value, unit) => {
     const num = Number(value);
     if (!Number.isFinite(num) || num <= 0) return 0;
@@ -1182,13 +1301,18 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (p && p.recordCategory) cval = String(p.recordCategory);
           else if (p && p.record_type) cval = String(p.record_type);
         }
+        const sourceEntity = String(cm.sourceEntity || '').trim().toLowerCase();
+        const isArchiveSource = sourceEntity.includes('archive');
         if (cval) {
-          const norm = cval.toLowerCase();
+          const norm = String(cval || '').trim().toLowerCase();
           const isD = (norm === 'dossier' || norm === 'dosier' || norm === 'اضابير');
           const isM = (norm === 'mail' || norm === 'بريد عادي');
-          if (cat === 'DOSSIER') return isD || String(cm.sourceEntity||'').toLowerCase().includes('archive');
-          if (cat === 'MAIL') return isM || (!isD);
+          if (cat === 'DOSSIER') return isD || isArchiveSource;
+          if (cat === 'MAIL') return isM || (!isD && !isArchiveSource);
         }
+        if (cat === 'DOSSIER') return isArchiveSource;
+        if (cat === 'MAIL') return !isArchiveSource;
+        return false;
       } catch (e) {}
       // default fallback: treat as MAIL
       return cat === 'MAIL';
@@ -1242,8 +1366,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
           };
 
+          const targetCircleName = String(archiveListCircleFilter || '').trim().toLowerCase();
           (itemsCircleMail || []).forEach(cm => {
-            if (cm.circleName !== archiveListCircleFilter) return;
+            if (String(cm.circleName || '').trim().toLowerCase() !== targetCircleName) return;
             // Only consider circleMail entries that represent dossiers for archive matching
             try {
               let category = null;
@@ -1254,8 +1379,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (p && p.recordCategory) category = String(p.recordCategory);
                 else if (p && p.record_type) category = String(p.record_type);
               }
-              const isDossier = category && (String(category).toLowerCase() === 'dossier' || String(category) === 'اضابير' || String(category).toLowerCase() === 'dosier');
-              if (!isDossier && !(String(cm.sourceEntity||'').toLowerCase().includes('archive'))) return; // skip non-dossier non-archive
+              const normCategory = String(category || '').trim().toLowerCase();
+              const isDossier = normCategory === 'dossier' || normCategory === 'اضابير' || normCategory === 'dosier';
+              const isArchiveSource = String(cm.sourceEntity || '').trim().toLowerCase().includes('archive');
+              if (!isDossier && !isArchiveSource) return; // skip non-dossier non-archive
             } catch (e) { /* ignore and continue */ }
             // explicit sourceId
             if (cm.sourceId !== undefined && cm.sourceId !== null && String(cm.sourceId) !== '') transferredIds.add(String(cm.sourceId));
@@ -1282,6 +1409,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           sourceList = sourceList.filter(it => transferredIds.has(String(it.id)));
         } catch (e) { /* ignore and fallback to full list */ }
     }
+    try { syncArchiveStatuses(); } catch (e) {}
     const filtered = sourceList.filter(it => {
       if (!filter) return true;
       return Object.values(it).join(' ').toLowerCase().includes(filter.toLowerCase());
@@ -1294,7 +1422,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     rows.forEach(it => {
       const tr = document.createElement('tr');
       const projectName = it.projectName || it.subject || it.recipient || it.serial || 'غير مسمى';
-      const statusLabel = it.status || (it.status === undefined ? '-' : it.status);
+      const statusLabel = getArchiveStatusDisplayValue(it.status) || '-';
       tr.innerHTML = `
         <td class="row-select"><input type="checkbox" ${it._selected ? 'checked' : ''} aria-label="تحديد السطر" /></td>
         <td>${projectName}</td>
@@ -1304,7 +1432,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="row-action-buttons">
             <button class="btn small" data-action="transfer">تحويل</button>
             <button class="btn small" data-action="edit">تعديل</button>
-            <button class="btn small" data-action="finish">${it.status === 'منتهي' || it.status === 'finished' ? 'تراجع عن الانتهاء' : 'انهاء'}</button>
+            <button class="btn small" data-action="finish">${isArchiveFinishedStatus(it.status) ? 'تراجع عن الانتهاء' : 'انهاء'}</button>
             <button class="btn small" data-action="delete">حذف</button>
           </div>
         </td>
@@ -1327,10 +1455,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       // transfer
       const transferBtn = tr.querySelector('[data-action="transfer"]');
-      if (transferBtn) transferBtn.addEventListener('click', () => showTransferModal(it, 'archive'));
+      if (transferBtn) transferBtn.addEventListener('click', () => showTransferModal(it, 'archive', null, it.id));
       // finish / unfinish
       tr.querySelector('[data-action="finish"]').addEventListener('click', () => {
-        it.status = (it.status === 'منتهي' || it.status === 'finished') ? 'مفتوح' : 'منتهي';
+        const currentDepartment = inferArchiveDepartmentFromItem(it) || getArchiveDepartmentFromStatus(it.status);
+        it.status = isArchiveFinishedStatus(it.status) ? buildArchiveStatusValue('قيد العمل', currentDepartment) : 'منتهية';
         saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
         renderArchive(filter);
       });
@@ -1659,7 +1788,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     addAttachmentsBtn.addEventListener('click', () => openAddAttachments(cm));
     
     const transferBtn = document.createElement('button'); transferBtn.className = 'btn'; transferBtn.textContent = 'تحويل';
-    transferBtn.addEventListener('click', () => showTransferModal(payload, cm.sourceEntity, cm.circleName));
+    transferBtn.addEventListener('click', () => showTransferModal(payload, cm.sourceEntity, cm.circleName, cm.sourceId));
     const finishBtn = document.createElement('button'); finishBtn.className = 'btn secondary'; finishBtn.textContent = cm.status === 'finished' ? 'تراجع عن الانتهاء' : 'انهاء المعاملة';
     finishBtn.addEventListener('click', async () => {
       try {
@@ -1774,7 +1903,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const note = prompt('أدخل ملاحظة قبل التحويل (اختياري):');
       if (note === null) return;
       // open transfer modal prefilled
-      showTransferModal(payload, cm.sourceEntity, cm.circleName);
+      showTransferModal(payload, cm.sourceEntity, cm.circleName, cm.sourceId);
       if (note) transferNoteEl.value = note;
     });
     const rollbackBtn = document.createElement('button'); rollbackBtn.className='btn'; rollbackBtn.textContent='تراجع عن التحويل';
@@ -1989,10 +2118,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // Transfer modal logic
-  let _transferContext = null; // { payload, sourceEntity, fromCircle }
-  const showTransferModal = (payload, sourceEntity, fromCircle = null) => {
+  let _transferContext = null; // { payload, sourceEntity, fromCircle, sourceId }
+  const showTransferModal = (payload, sourceEntity, fromCircle = null, sourceId = null) => {
     if (!transferModal || !transferListEl) return;
-    _transferContext = { payload, sourceEntity, fromCircle };
+    _transferContext = { payload, sourceEntity, fromCircle, sourceId };
     transferListEl.innerHTML = '';
     transferListEl.classList.add('transfer-list');
     circles.forEach(name => {
@@ -2011,6 +2140,67 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
     transferNoteEl.value = '';
     transferModal.classList.remove('hidden');
+  };
+
+  const updateSourceTransferState = (sourceEntity, sourceId, circleName, payload = null) => {
+    if (!sourceEntity || sourceId === undefined || sourceId === null) return;
+    const normalizedEntity = String(sourceEntity || '').toLowerCase();
+    const departmentName = String(circleName || '').trim();
+    const targetId = String(sourceId);
+
+    let sourceItem = null;
+    if (normalizedEntity.includes('archive')) sourceItem = (itemsArchive || []).find(it => String(it.id) === targetId);
+    else if (normalizedEntity.includes('outg')) sourceItem = (items || []).find(it => String(it.id) === targetId);
+    else if (normalizedEntity.includes('incom')) sourceItem = (itemsIncoming || []).find(it => String(it.id) === targetId);
+    else if (normalizedEntity.includes('recept')) sourceItem = (itemsReception || []).find(it => String(it.id) === targetId);
+
+    if (!sourceItem) return;
+
+    const previousDepartment = String(
+      (payload && (payload.previousDepartment || payload.previousLocation || payload.lastTransferredFrom || payload.currentDepartment || payload.department || payload.currentDepartmentName || sourceItem.previousDepartment || sourceItem.previousLocation || sourceItem.lastTransferredFrom))
+      || (sourceItem && (sourceItem.currentDepartment || sourceItem.department || sourceItem.currentDepartmentName || sourceItem.lastTransferredTo || sourceItem.lastTransferredFrom || ''))
+      || ''
+    ).trim();
+
+    if (departmentName) {
+      if (previousDepartment && previousDepartment !== departmentName) {
+        sourceItem.previousDepartment = previousDepartment;
+        sourceItem.previousLocation = previousDepartment;
+        sourceItem.lastTransferredFrom = previousDepartment;
+      }
+      sourceItem.currentDepartment = departmentName;
+      sourceItem.department = departmentName;
+      sourceItem.currentDepartmentName = departmentName;
+      sourceItem.lastTransferredTo = departmentName;
+      sourceItem.lastTransferAt = new Date().toISOString();
+    }
+
+    if (normalizedEntity.includes('archive')) {
+      if (window.ArchiveTransferState && typeof window.ArchiveTransferState.resetArchiveTransferState === 'function') {
+        window.ArchiveTransferState.resetArchiveTransferState(sourceItem);
+      } else {
+        ['studies','tech','gov','legal','gov2'].forEach(sectionKey => {
+          const sectionData = sourceItem[sectionKey];
+          if (!sectionData || typeof sectionData !== 'object') return;
+          delete sectionData.savedAt;
+          delete sectionData.deadlineAt;
+          delete sectionData.durationStartedAt;
+          delete sectionData.expectedMinutes;
+          delete sectionData.startedAt;
+        });
+        if (sourceItem.status && String(sourceItem.status).includes('متأخرة')) {
+          sourceItem.status = 'قيد العمل';
+        }
+      }
+      sourceItem.status = buildArchiveStatusValue('قيد العمل', departmentName || previousDepartment || sourceItem.currentDepartment || '');
+    } else if (sourceItem.status !== 'finished' && sourceItem.status !== 'منتهية') {
+      sourceItem.status = 'قيد العمل';
+    }
+
+    if (normalizedEntity.includes('archive')) saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
+    else if (normalizedEntity.includes('outg')) saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, items);
+    else if (normalizedEntity.includes('incom')) saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, itemsIncoming);
+    else if (normalizedEntity.includes('recept')) saveLocalBackup(LOCAL_STORAGE_KEYS.reception, itemsReception);
   };
 
   const performTransfer = async () => {
@@ -2041,26 +2231,78 @@ document.addEventListener('DOMContentLoaded', async () => {
         else if (normalizedSourceEntity.includes('incom')) normalizedSourceEntity = 'incoming';
         else if (normalizedSourceEntity.includes('recept')) normalizedSourceEntity = 'reception';
 
+        const inferredSourceId = _transferContext.sourceId !== undefined && _transferContext.sourceId !== null
+          ? _transferContext.sourceId
+          : ((_transferContext.payload && (_transferContext.payload.id || _transferContext.payload.sourceId || _transferContext.payload.archiveId || _transferContext.payload._id))
+            ? (_transferContext.payload.id || _transferContext.payload.sourceId || _transferContext.payload.archiveId || _transferContext.payload._id)
+            : null);
+
+        const transferDepartment = String(circleName || '').trim();
+        if (_transferContext.payload) {
+          const previousTransferDepartment = String(
+            (_transferContext.payload.previousDepartment || _transferContext.payload.previousLocation || _transferContext.payload.lastTransferredFrom || _transferContext.payload.currentDepartment || _transferContext.payload.department || _transferContext.payload.currentDepartmentName || '')
+            || ''
+          ).trim();
+          if (previousTransferDepartment && previousTransferDepartment !== transferDepartment) {
+            _transferContext.payload.previousDepartment = previousTransferDepartment;
+            _transferContext.payload.previousLocation = previousTransferDepartment;
+            _transferContext.payload.lastTransferredFrom = previousTransferDepartment;
+          }
+          _transferContext.payload.currentDepartment = transferDepartment;
+          _transferContext.payload.department = transferDepartment;
+          _transferContext.payload.currentDepartmentName = transferDepartment;
+          _transferContext.payload.lastTransferredTo = transferDepartment;
+          _transferContext.payload.lastTransferAt = new Date().toISOString();
+          if (normalizedSourceEntity === 'archive') {
+            if (window.ArchiveTransferState && typeof window.ArchiveTransferState.resetArchiveTransferState === 'function') {
+              window.ArchiveTransferState.resetArchiveTransferState(_transferContext.payload);
+            } else {
+              ['studies','tech','gov','legal','gov2'].forEach(sectionKey => {
+                const sectionData = _transferContext.payload[sectionKey];
+                if (!sectionData || typeof sectionData !== 'object') return;
+                delete sectionData.savedAt;
+                delete sectionData.deadlineAt;
+                delete sectionData.durationStartedAt;
+                delete sectionData.expectedMinutes;
+                delete sectionData.startedAt;
+              });
+              if (_transferContext.payload.status && String(_transferContext.payload.status).includes('متأخرة')) {
+                _transferContext.payload.status = 'قيد العمل';
+              }
+            }
+            _transferContext.payload.status = buildArchiveStatusValue('قيد العمل', transferDepartment);
+          } else if (_transferContext.payload.status !== 'finished' && _transferContext.payload.status !== 'منتهية') {
+            _transferContext.payload.status = 'قيد العمل';
+          }
+        }
+
         const payload = {
           sourceEntity: normalizedSourceEntity,
-          sourceId: _transferContext.payload.id || null,
+          sourceId: inferredSourceId || null,
           circleName,
           // tell server which circle we are transferring from so it can prefer that circle's attachments
           fromCircle: _transferContext.fromCircle || null,
           payload: JSON.stringify(_transferContext.payload),
           attachments: JSON.stringify(attachmentsToSend || []),
-          status: 'open'
+          status: 'قيد العمل'
         };
-        // Infer business-category: prefer explicit `recordCategory` on the payload, then legacy `record_type`,
-        // then fall back to treating `sourceEntity==='archive'` as DOSSIER.
+
+        updateSourceTransferState(normalizedSourceEntity, inferredSourceId, circleName, _transferContext.payload);
+        // Infer business-category: prefer explicit `recordCategory` or `record_type` on the payload,
+        // but always treat archive source transfers as DOSSIER.
         let inferredCategory = 'MAIL';
         try {
           const srcPayload = _transferContext.payload || {};
-          if (srcPayload.recordCategory) inferredCategory = String(srcPayload.recordCategory).toUpperCase();
-          else if (srcPayload.record_type) {
-            const rt = String(srcPayload.record_type || '').toLowerCase();
-            inferredCategory = rt.includes('اضاب') ? 'DOSSIER' : 'MAIL';
-          } else if (normalizedSourceEntity === 'archive') inferredCategory = 'DOSSIER';
+          const payloadCategory = srcPayload.recordCategory || srcPayload.recordType || srcPayload.record_type || '';
+          const categoryNorm = String(payloadCategory || '').trim().toLowerCase();
+          const looksLikeDossier = categoryNorm.includes('اضاب') || categoryNorm === 'dossier' || categoryNorm === 'dosier';
+          if (normalizedSourceEntity === 'archive' || looksLikeDossier) {
+            inferredCategory = 'DOSSIER';
+          } else if (categoryNorm) {
+            inferredCategory = 'MAIL';
+          } else if (normalizedSourceEntity === 'archive') {
+            inferredCategory = 'DOSSIER';
+          }
         } catch (e) { inferredCategory = (normalizedSourceEntity === 'archive') ? 'DOSSIER' : 'MAIL'; }
         payload.recordCategory = inferredCategory; // MAIL | DOSSIER
         // keep legacy Arabic marker for compatibility
@@ -2781,7 +3023,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, items);
         render(searchInput.value);
       });
-      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'outgoing'));
+      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'outgoing', null, it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateForm(it);
       });
@@ -2865,7 +3107,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, itemsIncoming);
         renderIncoming(searchInputIncoming.value);
       });
-      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'incoming'));
+      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'incoming', null, it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateIncomingForm(it);
       });
@@ -2956,7 +3198,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveLocalBackup(LOCAL_STORAGE_KEYS.reception, itemsReception);
         renderReception(searchInputReception.value);
       });
-      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'reception'));
+      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'reception', null, it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateReceptionForm(it);
       });
@@ -2982,13 +3224,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   resetReceptionBtn.addEventListener('click', clearReceptionForm);
   // archive reset
   const archiveCancelBtn = document.getElementById('archiveCancelBtn');
+  function openArchiveRecord(item){
+    if (!item) return;
+    const view = document.getElementById('archiveNewView');
+    if (view) view.style.display = '';
+    showArchiveSubview('archiveNewView');
+    showArchivesTopNav('new');
+    if (statsSection) statsSection.style.display = 'none';
+    const cards = document.querySelector('.archives-cards'); if (cards) cards.style.display = 'none';
+    populateArchiveForm(item);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   function populateArchiveForm(item){
     if (!archiveForm) return;
     // map legacy fields if present
     document.getElementById('archiveProjectName').value = item.projectName || item.subject || item.recipient || '';
     document.getElementById('archiveCreateDate').value = item.createDate || item.date || getTodayValue();
-    document.getElementById('archiveStatus').value = item.status || 'قيد التفعيل';
-    const statusDisplay = document.getElementById('archiveStatusDisplay'); if (statusDisplay) statusDisplay.value = item.status || 'قيد التفعيل';
+    const statusInfo = parseArchiveStatus(item.status);
+    const statusEl = document.getElementById('archiveStatus'); if (statusEl) statusEl.value = statusInfo.base || 'قيد العمل';
+    const departmentEl = document.getElementById('archiveDepartment'); if (departmentEl) departmentEl.value = statusInfo.department || inferArchiveDepartmentFromItem(item) || '';
+    const statusDisplay = document.getElementById('archiveStatusDisplay'); if (statusDisplay) statusDisplay.value = buildArchiveStatusValue(statusInfo.base || 'قيد العمل', departmentEl ? departmentEl.value : '');
     // studies
     document.getElementById('studies_cost').value = (item.studies && item.studies.cost) || '';
     document.getElementById('studies_team').value = (item.studies && item.studies.team) || '';
@@ -3089,8 +3344,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const createDateEl = document.getElementById('archiveCreateDate'); if (createDateEl) createDateEl.value = (new Date()).toISOString().slice(0,10);
     const enteredBy = (currentUser && (currentUser.name || currentUser.username)) ? (currentUser.name || currentUser.username) : '';
     ['studies_enteredBy','tech_enteredBy','gov_enteredBy','legal_enteredBy','gov2_enteredBy'].forEach(id => { const el = document.getElementById(id); if (el) el.value = enteredBy; });
-    const statusEl = document.getElementById('archiveStatus'); if (statusEl) statusEl.value = '';
-    const statusDisplay = document.getElementById('archiveStatusDisplay'); if (statusDisplay) statusDisplay.value = '';
+    const statusEl = document.getElementById('archiveStatus'); if (statusEl) statusEl.value = 'قيد العمل';
+    const departmentEl = document.getElementById('archiveDepartment'); if (departmentEl) departmentEl.value = '';
+    const statusDisplay = document.getElementById('archiveStatusDisplay'); if (statusDisplay) statusDisplay.value = 'قيد العمل';
     // ensure edit button is disabled for a fresh new form
     const editBtn = document.getElementById('editArchiveBtn'); if (editBtn) editBtn.disabled = true;
     // ensure badges present
@@ -3132,7 +3388,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const payload = {
       projectName: document.getElementById('archiveProjectName') ? document.getElementById('archiveProjectName').value : '',
       createDate: document.getElementById('archiveCreateDate') ? document.getElementById('archiveCreateDate').value : '',
-      status: document.getElementById('archiveStatus') ? document.getElementById('archiveStatus').value : '',
+      status: document.getElementById('archiveStatus') ? document.getElementById('archiveStatus').value : 'قيد العمل',
       studies: {
         cost: document.getElementById('studies_cost') ? document.getElementById('studies_cost').value : '',
         team: document.getElementById('studies_team') ? document.getElementById('studies_team').value : '',
@@ -3185,10 +3441,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // hide other tab contents and show archives
     document.querySelectorAll('.tab-content').forEach(c => { if (c.id === 'archives') c.style.display = ''; else c.style.display = 'none'; });
     const cards = document.querySelector('.archives-cards'); if (cards) cards.style.display = 'none';
-    if (archivesListView) archivesListView.style.display = '';
-    // hide new archive form and overdue view if open
-    const newView = document.getElementById('archiveNewView'); if (newView) newView.style.display = 'none';
-    if (archivesLateView) archivesLateView.style.display = 'none';
+    showArchiveSubview('archivesListView');
     if (statsSection) statsSection.style.display = 'none';
     try { await loadArchive(); } catch (e) {}
     // Ensure circle-mail transfer records and histories are loaded so transferred archives appear
@@ -3221,8 +3474,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const shouldPush = (typeof push === 'boolean') ? push : true;
     if (shouldPush) try { pushCurrentToHistory(); } catch(e){}
     const cards = document.querySelector('.archives-cards'); if (cards) cards.style.display = 'none';
-    if (archivesLateView) archivesLateView.style.display = '';
-    if (archivesListView) archivesListView.style.display = 'none';
+    showArchiveSubview('archivesLateView');
     if (statsSection) statsSection.style.display = 'none';
     window.scrollTo({ top: 0, behavior: 'smooth' });
     try { attachLocalBackToCurrentView(); } catch (e) {}
@@ -3282,8 +3534,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshAllBtn.addEventListener('click', () => {
       const selected = (itemsArchive || []).filter(it => it._selected);
       if (!selected.length) return alert('لم يتم اختيار أي سجل لإنهائه.');
-      if (!confirm(`هل تريد وضع حالة 'منتهي' على ${selected.length} سجل${selected.length>1?'اً':''}؟`)) return;
-      selected.forEach(it => { it.status = 'منتهي'; it._selected = false; });
+      if (!confirm(`هل تريد وضع حالة 'منتهية' على ${selected.length} سجل${selected.length>1?'اً':''}؟`)) return;
+      selected.forEach(it => { it.status = 'منتهية'; it._selected = false; });
       saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
       renderArchive(archiveSearchInput ? archiveSearchInput.value : '');
       alert('تم وضع حالة الانتهاء على السجلات المحددة.');
@@ -4014,7 +4266,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const payload = {
         projectName: document.getElementById('archiveProjectName') ? document.getElementById('archiveProjectName').value : '',
         createDate: document.getElementById('archiveCreateDate') ? document.getElementById('archiveCreateDate').value : '',
-        status: document.getElementById('archiveStatus') ? document.getElementById('archiveStatus').value : 'قيد التفعيل',
+        status: 'قيد العمل',
         studies: {
           cost: document.getElementById('studies_cost') ? document.getElementById('studies_cost').value : '',
           team: document.getElementById('studies_team') ? document.getElementById('studies_team').value : '',
@@ -4061,6 +4313,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       // attachments per section
       const attachmentsStore = formEl._attachments || {};
       payload.attachments = attachmentsStore;
+      const statusBase = document.getElementById('archiveStatus') ? document.getElementById('archiveStatus').value : 'قيد العمل';
+      const departmentEl = document.getElementById('archiveDepartment');
+      const inferredDepartment = (departmentEl && departmentEl.value && String(departmentEl.value).trim()) || inferArchiveDepartmentFromItem({ studies: payload.studies, tech: payload.tech, gov: payload.gov, legal: payload.legal, gov2: payload.gov2 });
+      if (departmentEl && !departmentEl.value && inferredDepartment) departmentEl.value = inferredDepartment;
+      payload.status = buildArchiveStatusValue(statusBase, inferredDepartment);
       // mark record type for archives
       payload.record_type = 'اضابير';
       payload.recordCategory = 'DOSSIER';
@@ -4117,6 +4374,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           // mark the form as editing this newly created record
           const editBtn = document.getElementById('editArchiveBtn'); if (editBtn) editBtn.disabled = false;
         }
+        try { syncArchiveStatuses(); } catch (e) {}
         saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
         renderArchive();
         updateDashboardStats();
@@ -4153,13 +4411,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (statusSelectInit) {
       // default and make it disabled (non-editable)
-      if (!statusSelectInit.value || String(statusSelectInit.value).trim() === '') statusSelectInit.value = 'قيد التفعيل';
+      if (!statusSelectInit.value || String(statusSelectInit.value).trim() === '') statusSelectInit.value = 'قيد العمل';
       statusSelectInit.disabled = true;
-      if (statusDisplayInit) statusDisplayInit.value = statusSelectInit.value;
-      // keep display in sync (though select is disabled)
-      statusSelectInit.addEventListener('change', () => {
-        if (statusDisplayInit) statusDisplayInit.value = statusSelectInit.value;
-      });
+      const departmentInputInit = document.getElementById('archiveDepartment');
+      const syncStatusDisplay = () => {
+        if (statusDisplayInit) statusDisplayInit.value = buildArchiveStatusValue(statusSelectInit.value, departmentInputInit ? departmentInputInit.value : '');
+      };
+      syncStatusDisplay();
+      statusSelectInit.addEventListener('change', syncStatusDisplay);
+      if (departmentInputInit) departmentInputInit.addEventListener('input', syncStatusDisplay);
     }
   } catch (e) { console.warn('Archive info init failed', e); }
   searchInput.addEventListener('input', () => { currentPageOutgoing = 1; render(searchInput.value); });
