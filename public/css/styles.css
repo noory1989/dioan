@@ -262,7 +262,8 @@ body{font-size:18px;font-weight:700}
 .form-row{display:flex;flex-direction:column}
 .form-row.full-width{grid-column:1 / -1}
 .form-row label{font-size:14px;margin-bottom:8px;color:#334155}
-.form-row input,.form-row textarea{padding:14px 14px;border-radius:12px;border:1px solid #E2E8F0;font-family:inherit;min-width:0}
+.form-row input,.form-row select,.form-row textarea{padding:14px 14px;border-radius:12px;border:1px solid #E2E8F0;font-family:inherit;min-width:0;width:100%}
+.form-row select{appearance:auto;background:#fff}
 .form-row textarea{resize:vertical;min-height:110px}
 .form-actions{display:flex;gap:14px;justify-content:flex-start;margin-top:24px}
 .action-right{justify-content:flex-end}

@@ -1463,11 +1463,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     'لجنة الشراء', 'المستودع', 'المتابعة'
   ];
 
+  const populateCircleSelectOptions = () => {
+    const selectIds = ['fieldTransfer', 'inFieldTransferTo'];
+    selectIds.forEach((id) => {
+      const selectEl = document.getElementById(id);
+      if (!selectEl) return;
+      const currentValue = selectEl.value || '';
+      const options = ['<option value="">-- اختر الدائرة --</option>'];
+      circles.forEach((circleName) => {
+        options.push(`<option value="${circleName}">${circleName}</option>`);
+      });
+      selectEl.innerHTML = options.join('');
+      if (currentValue) {
+        selectEl.value = currentValue;
+      }
+    });
+  };
+
   // Circles that should show the 3-action buttons instead of the normal modal list
   const specialCircles = new Set(['مكتب السيد المدير','التخطيط والمتابعة','الدراسات','ديوان الشؤون الفنية','المتابعة','القانونية','الديوان العام']);
 
   let itemsCircleMail = [];
   let histories = [];
+
+  populateCircleSelectOptions();
 
   const getNotificationsForCircle = (circleName) => {
     if (!circleName) return [];
