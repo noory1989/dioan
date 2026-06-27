@@ -1520,6 +1520,47 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  const getCircleMailTypeLabel = (sourceEntity) => {
+    const info = getEntityInfo(sourceEntity || '');
+    if (info.key === 'outgoing') return 'البريد الصادر';
+    if (info.key === 'incoming') return 'البريد الوارد';
+    if (info.key === 'reception') return 'الاستقبال والشكاوى';
+    return info.display || 'بريد دائرة';
+  };
+
+  const getCircleMailListRowValues = (cm) => {
+    const payload = parseCirclePayload(cm);
+    let subject = payload.subject || payload.name || payload.request || payload.requestType || payload.description || payload.notes || payload.request || payload.requestNo || payload.note || payload.details || '-';
+    if (!subject && cm.sourceEntity && payload && payload.sender) subject = payload.sender;
+    if (!subject) subject = '-';
+
+    const type = getCircleMailTypeLabel(cm.sourceEntity);
+
+    const dateValues = [payload.date, payload.arriveDate, payload.inDate, payload.submissionDate, payload.arriveDate, payload.oldDate, payload.newDate, payload.createdAt, cm.createdAt, cm.updatedAt];
+    let date = '-';
+    for (const val of dateValues) {
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        const parsed = new Date(val);
+        if (!Number.isNaN(parsed.getTime())) {
+          date = parsed.toLocaleDateString('ar-SY');
+          break;
+        }
+      }
+    }
+
+    let attachments = [];
+    try {
+      if (Array.isArray(cm.attachments)) attachments = cm.attachments;
+      else if (cm.attachments) attachments = JSON.parse(cm.attachments);
+      else if (payload.attachments) attachments = Array.isArray(payload.attachments) ? payload.attachments : JSON.parse(payload.attachments);
+    } catch (e) {
+      attachments = [];
+    }
+    attachments = Array.isArray(attachments) ? attachments : [];
+
+    return { subject, type, date, attachments };
+  };
+
   // Archive rendering
   const archiveTableBody = document.querySelector('#archiveTable tbody');
   const selectAllArchiveCheckbox = document.getElementById('selectAllArchive');
@@ -1788,24 +1829,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (e) { return false; }
       };
 
-      // determine dominant type among matches
-      let headerMap = outgoingHeaders; // default
-      if (matches.every(cm => { const k = (cm.sourceEntity||'').toLowerCase(); return k.includes('incom') || k === 'incoming'; })) headerMap = incomingHeaders;
-      else if (matches.every(cm => { const k = (cm.sourceEntity||'').toLowerCase(); return k.includes('recept') || k === 'reception'; })) headerMap = receptionHeaders;
-      else if (matches.some(cm => looksLikeArchive(cm))) headerMap = null; // signal archive layout
-
+      // determine the rendering mode for the modal rows
+      // For outgoing/incoming/reception transfers, always render the minimal mail record columns.
+      // Only use archive layout when the source is explicitly an archive record.
+      const useArchiveLayout = matches.some(cm => {
+        const sourceEntity = String(cm.sourceEntity || '').toLowerCase();
+        return sourceEntity.includes('archive');
+      });
       const table = document.createElement('table');
       table.className = 'data-table circle-table';
       const thead = document.createElement('thead');
       const headerRow = document.createElement('tr');
-      // select checkbox column
-      const selTh = document.createElement('th'); selTh.className = 'row-select'; selTh.innerHTML = '<input type="checkbox" />'; headerRow.appendChild(selTh);
 
-      if (headerMap) {
-        // Add headers from chosen map
-        Object.keys(headerMap).forEach(k => { const th = document.createElement('th'); th.textContent = headerMap[k]; headerRow.appendChild(th); });
-        const attTh = document.createElement('th'); attTh.textContent = 'المرفقات'; headerRow.appendChild(attTh);
-        const actionsTh = document.createElement('th'); actionsTh.textContent = 'إجراءات'; headerRow.appendChild(actionsTh);
+      if (!useArchiveLayout) {
+        const columns = ['المضمون', 'نوع البريد', 'التاريخ', 'المرفقات', 'إجراءات'];
+        columns.forEach(text => { const th = document.createElement('th'); th.textContent = text; headerRow.appendChild(th); });
       } else {
         // Archive layout: projectName, createDate, status, attachments, actions
         const cols = [{k:'projectName', l:'اسم المشروع'},{k:'createDate', l:'تاريخ الإنشاء'},{k:'status', l:'الحالة'}];
@@ -1820,23 +1858,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       matches.slice(0,200).forEach(cm => {
         const payload = parseCirclePayload(cm);
         const tr = document.createElement('tr');
-        // checkbox
-        const selTd = document.createElement('td'); selTd.className = 'row-select'; selTd.innerHTML = '<input type="checkbox" />'; tr.appendChild(selTd);
-        // add columns in order according to headerMap or archive layout
-        if (headerMap) {
-          Object.keys(headerMap).forEach(k => {
-            const td = document.createElement('td');
-            let v = '-';
-            if (payload && payload.hasOwnProperty(k)) v = payload[k];
-            else if (payload && payload[k] !== undefined) v = payload[k];
-            // fallback: try common alternate keys
-            else if (k === 'recipient' && payload && (payload.recipient || payload.sender)) v = payload.recipient || payload.sender;
-            else if (k === 'subject' && payload && (payload.subject || payload.name)) v = payload.subject || payload.name;
-            else if (k === 'serial' && payload && (payload.serial || payload.inNo || payload.requestNo)) v = payload.serial || payload.inNo || payload.requestNo;
-            if (Array.isArray(v)) td.textContent = v.join(', ');
-            else td.textContent = (v === undefined || v === null || v === '') ? '-' : v;
-            tr.appendChild(td);
-          });
+        // add columns in order according to the chosen layout
+        if (!useArchiveLayout) {
+          const rowValues = getCircleMailListRowValues(cm);
+          const subjectTd = document.createElement('td'); subjectTd.textContent = rowValues.subject; tr.appendChild(subjectTd);
+          const typeTd = document.createElement('td'); typeTd.textContent = rowValues.type; tr.appendChild(typeTd);
+          const dateTd = document.createElement('td'); dateTd.textContent = rowValues.date; tr.appendChild(dateTd);
+          const attTd = document.createElement('td'); attTd.textContent = rowValues.attachments.length ? rowValues.attachments.map(a => a.name || a).join(', ') : '-'; tr.appendChild(attTd);
         } else {
           const keys = ['projectName','createDate','status'];
           keys.forEach(k => {
@@ -1850,13 +1878,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             tr.appendChild(td);
           });
         }
-        // attachments column
-        const attTd = document.createElement('td');
-        const atts = (() => {
-          try { return Array.isArray(cm.attachments) ? cm.attachments : (cm.attachments ? JSON.parse(cm.attachments) : (payload && payload.attachments ? (Array.isArray(payload.attachments) ? payload.attachments : JSON.parse(payload.attachments||'[]')) : [])); } catch (e) { return []; }
-        })();
-        attTd.textContent = atts.length ? atts.map(a=>a.name||a).join(', ') : '-';
-        tr.appendChild(attTd);
 
         // actions
         const actTd = document.createElement('td'); actTd.style.display = 'flex'; actTd.style.gap = '6px';
