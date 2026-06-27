@@ -52,11 +52,20 @@ body{font-size:18px;font-weight:700}
   border-radius: 12px;
 }
 .logout-btn {
-  background: transparent; border: none; color: white; padding: 8px 12px; font-size: 16px; cursor: pointer; transition: background-color 0.2s;
+  background: transparent !important;
+  border: 1px solid rgba(255,255,255,0.2) !important;
+  color: #ffffff !important;
+  padding: 8px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+  border-radius: 8px;
 }
 .logout-btn:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255,255,255,0.3) !important;
+  color: #ffffff !important;
 }
 
 .tabs{background:transparent;padding:18px 0;border-bottom: none}
