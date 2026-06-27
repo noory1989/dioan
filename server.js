@@ -141,15 +141,16 @@ const buildCircleMailWorkflowValues = (body = {}) => {
 
 // Normalize status values to application canonical Arabic labels
 const normalizeStatusValue = (s) => {
-  if (s === undefined || s === null) return 'قيد العمل';
+  if (s === undefined || s === null) return 'تم الاستلام';
   try {
     const v = String(s).trim().toLowerCase();
-    if (!v) return 'قيد العمل';
+    if (!v) return 'تم الاستلام';
     if (v === 'finished' || v === 'منتهي' || v === 'منتهية' || v === 'ended') return 'منتهية';
     if (v === 'overdue' || v.includes('تأخر') || v === 'متأخرة') return 'متأخرة';
+    if (v === 'received' || v === 'تم الاستلام' || v.includes('استلام')) return 'تم الاستلام';
     // treat 'open' and other values as in-progress
     return 'قيد العمل';
-  } catch (e) { return 'قيد العمل'; }
+  } catch (e) { return 'تم الاستلام'; }
 };
 
 const hasActiveOwnerForOverdue = (cm = {}) => {
@@ -761,7 +762,7 @@ app.post('/api/dossiers/transfer', async (req, res) => {
       isOverdue: false,
       lockedAt: null,
       isTransferred: false,
-      status: normalizeStatusValue('open'),
+      status: normalizeStatusValue('received'),
       ...(circleName ? { circleName } : {}),
     };
 
@@ -830,7 +831,8 @@ app.get('/api/overdue-dossiers', async (req, res) => {
        WHERE cm.isOverdue = 1
          AND (cm.currentDepartmentId IS NOT NULL OR cm.circleName IS NOT NULL)
          AND cm.deletedAt IS NULL
-         AND (cm.isTransferred = 0 OR cm.isTransferred IS NULL)`;
+         AND (cm.isTransferred = 0 OR cm.isTransferred IS NULL)
+         AND (cm.status IS NULL OR cm.status NOT IN ('منتهية','منتهي','finished'))`;
 
     if (req.query && req.query.departmentId) {
       sql += ' AND cm.currentDepartmentId = ?';
@@ -884,7 +886,7 @@ app.post('/api/overdue-dossiers/resolve', async (req, res) => {
     const { id, dossierId } = req.body || {};
     if (!id && !dossierId) return res.status(400).json({ error: 'Missing id or dossierId' });
 
-    const openStatus = normalizeStatusValue('open');
+    const openStatus = normalizeStatusValue('received');
     if (dossierId) {
       try {
         await AppDataSource.manager.query(`UPDATE circle_mail SET is_overdue = 0, deadlineAt = NULL, status = ? WHERE source_id = ?`, [openStatus, dossierId]);

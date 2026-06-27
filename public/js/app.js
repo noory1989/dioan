@@ -1087,6 +1087,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!text) return 'قيد العمل';
     if (text.includes('متأخرة') || text === 'overdue' || text === 'late') return 'متأخرة';
     if (text.includes('منتهية') || text === 'منتهي' || text === 'finished') return 'منتهية';
+    if (text.includes('تم الاستلام')) return 'تم الاستلام';
     return 'قيد العمل';
   };
 
@@ -1099,14 +1100,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const parseArchiveStatus = (status) => {
     const text = String(status || '').trim();
     if (!text) return { base: 'قيد العمل', department: '' };
-    const match = text.match(/^(قيد العمل|متأخرة|منتهية)\s*-\s*(.+)$/);
+    const match = text.match(/^(قيد العمل|متأخرة|منتهية|تم الاستلام)\s*-\s*(.+)$/);
     if (match) return { base: match[1], department: match[2].trim() };
     return { base: getArchiveBaseStatus(text), department: '' };
   };
 
   const inferArchiveDepartmentFromItem = (item) => {
     if (!item) return '';
-    const departmentFromItem = item.department || item.currentDepartment || item.circleName || item.currentDepartmentName || '';
+    const departmentFromItem = [
+      item.lastTransferredTo,
+      item.department,
+      item.currentDepartment,
+      item.circleName,
+      item.currentDepartmentName
+    ].find((value) => value !== undefined && value !== null && String(value).trim() !== '');
     if (departmentFromItem) return String(departmentFromItem).trim();
     for (const [section, label] of Object.entries(archiveSectionLabels)) {
       const sectionData = item[section];
@@ -1129,21 +1136,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const getArchiveOverdueDepartmentForItem = (item) => {
     if (!item) return '';
-    const now = Date.now();
-    const sectionOrder = ['studies','tech','gov','legal','gov2'];
-    for (const section of sectionOrder) {
-      const sectionData = item[section];
-      const expected = sectionData && sectionData.expected;
-      const savedAt = sectionData && sectionData.savedAt;
-      if (!expected || !savedAt) continue;
-      const minutes = convertExpectedToMinutes(expected.value, expected.unit);
-      if (minutes <= 0) continue;
-      const savedTimestamp = new Date(savedAt).getTime();
-      if (isNaN(savedTimestamp)) continue;
-      if (savedTimestamp + minutes * 60 * 1000 <= now) {
-        return archiveSectionLabels[section];
-      }
+
+    if (window.ArchiveTransferState && typeof window.ArchiveTransferState.resolveArchiveOverdueDepartmentForDisplay === 'function') {
+      return window.ArchiveTransferState.resolveArchiveOverdueDepartmentForDisplay(item, Date.now());
     }
+
     return '';
   };
 
@@ -1151,18 +1148,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!Array.isArray(itemsArchive)) return;
     itemsArchive.forEach(item => {
       if (!item) return;
-      if (isArchiveFinishedStatus(item.status)) {
-        item.status = 'منتهية';
-        return;
-      }
-      const overdueDepartment = getArchiveOverdueDepartmentForItem(item);
-      if (overdueDepartment) {
-        item.status = buildArchiveStatusValue('متأخرة', overdueDepartment);
-        return;
-      }
-      const parsed = parseArchiveStatus(item.status);
-      const department = inferArchiveDepartmentFromItem(item) || parsed.department || item.lastTransferredTo || '';
-      item.status = buildArchiveStatusValue('قيد العمل', department);
+      const statusInfo = window.ArchiveTransferState && typeof window.ArchiveTransferState.deriveArchiveStatusInfo === 'function'
+        ? window.ArchiveTransferState.deriveArchiveStatusInfo(item, Date.now())
+        : { base: 'قيد العمل', department: inferArchiveDepartmentFromItem(item) || '' };
+      const department = statusInfo.department || inferArchiveDepartmentFromItem(item) || '';
+      item.status = buildArchiveStatusValue(statusInfo.base, department);
     });
   };
 
@@ -1189,7 +1179,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
     const rows = [];
     (itemsArchive || []).forEach(item => {
-      if (!item || item.status === 'finished') return;
+      if (!item || isArchiveFinishedStatus(item.status)) return;
       let bestOverdue = null;
       Object.keys(sectionLabels).forEach(section => {
         const sectionData = item[section];
@@ -1206,10 +1196,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           const row = {
             dossierId: item.id,
             projectName: item.projectName || item.subject || item.recipient || 'غير مسمى',
-            currentDepartment: sectionLabels[section],
+            currentDepartment: window.ArchiveTransferState && typeof window.ArchiveTransferState.resolveArchiveDepartmentForDisplay === 'function'
+              ? window.ArchiveTransferState.resolveArchiveDepartmentForDisplay(item)
+              : sectionLabels[section],
             assignedDuration: `${expected.value || 0} ${expected.unit || ''}`.trim(),
             deadlineAt: new Date(deadlineMs).toISOString(),
-            delayDuration: `${delayMinutes} دقيقة`,
+            delayDuration: window.ArchiveTransferState && typeof window.ArchiveTransferState.formatArchiveDelayDuration === 'function'
+              ? window.ArchiveTransferState.formatArchiveDelayDuration(delayMinutes)
+              : `${delayMinutes} دقيقة`,
             status: item.status || 'قيد التفعيل'
           };
           if (!bestOverdue || deadlineMs < new Date(bestOverdue.deadlineAt).getTime()) {
@@ -2192,7 +2186,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           sourceItem.status = 'قيد العمل';
         }
       }
-      sourceItem.status = buildArchiveStatusValue('قيد العمل', departmentName || previousDepartment || sourceItem.currentDepartment || '');
+      sourceItem.status = buildArchiveStatusValue('تم الاستلام', departmentName || previousDepartment || sourceItem.currentDepartment || '');
     } else if (sourceItem.status !== 'finished' && sourceItem.status !== 'منتهية') {
       sourceItem.status = 'قيد العمل';
     }
@@ -2270,7 +2264,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 _transferContext.payload.status = 'قيد العمل';
               }
             }
-            _transferContext.payload.status = buildArchiveStatusValue('قيد العمل', transferDepartment);
+            _transferContext.payload.status = buildArchiveStatusValue('تم الاستلام', transferDepartment);
           } else if (_transferContext.payload.status !== 'finished' && _transferContext.payload.status !== 'منتهية') {
             _transferContext.payload.status = 'قيد العمل';
           }
@@ -3240,10 +3234,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // map legacy fields if present
     document.getElementById('archiveProjectName').value = item.projectName || item.subject || item.recipient || '';
     document.getElementById('archiveCreateDate').value = item.createDate || item.date || getTodayValue();
-    const statusInfo = parseArchiveStatus(item.status);
-    const statusEl = document.getElementById('archiveStatus'); if (statusEl) statusEl.value = statusInfo.base || 'قيد العمل';
+    const derivedStatusInfo = (window.ArchiveTransferState && typeof window.ArchiveTransferState.deriveArchiveStatusInfo === 'function')
+      ? window.ArchiveTransferState.deriveArchiveStatusInfo(item, Date.now())
+      : parseArchiveStatus(item.status);
+    const statusInfo = derivedStatusInfo || parseArchiveStatus(item.status);
+    const statusEl = document.getElementById('archiveStatus'); if (statusEl) statusEl.value = statusInfo.base || 'تم الاستلام';
     const departmentEl = document.getElementById('archiveDepartment'); if (departmentEl) departmentEl.value = statusInfo.department || inferArchiveDepartmentFromItem(item) || '';
-    const statusDisplay = document.getElementById('archiveStatusDisplay'); if (statusDisplay) statusDisplay.value = buildArchiveStatusValue(statusInfo.base || 'قيد العمل', departmentEl ? departmentEl.value : '');
+    const statusDisplay = document.getElementById('archiveStatusDisplay'); if (statusDisplay) statusDisplay.value = buildArchiveStatusValue(statusInfo.base || 'تم الاستلام', departmentEl ? departmentEl.value : '');
     // studies
     document.getElementById('studies_cost').value = (item.studies && item.studies.cost) || '';
     document.getElementById('studies_team').value = (item.studies && item.studies.team) || '';
@@ -4313,11 +4310,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       // attachments per section
       const attachmentsStore = formEl._attachments || {};
       payload.attachments = attachmentsStore;
-      const statusBase = document.getElementById('archiveStatus') ? document.getElementById('archiveStatus').value : 'قيد العمل';
       const departmentEl = document.getElementById('archiveDepartment');
       const inferredDepartment = (departmentEl && departmentEl.value && String(departmentEl.value).trim()) || inferArchiveDepartmentFromItem({ studies: payload.studies, tech: payload.tech, gov: payload.gov, legal: payload.legal, gov2: payload.gov2 });
       if (departmentEl && !departmentEl.value && inferredDepartment) departmentEl.value = inferredDepartment;
-      payload.status = buildArchiveStatusValue(statusBase, inferredDepartment);
+      const candidateStatusItem = { ...payload, currentDepartment: inferredDepartment || '', status: payload.status };
+      const derivedStatusInfo = window.ArchiveTransferState && typeof window.ArchiveTransferState.deriveArchiveStatusInfo === 'function'
+        ? window.ArchiveTransferState.deriveArchiveStatusInfo(candidateStatusItem, Date.now())
+        : { base: 'تم الاستلام', department: inferredDepartment || '' };
+      payload.status = buildArchiveStatusValue(derivedStatusInfo.base || 'تم الاستلام', derivedStatusInfo.department || inferredDepartment || '');
       // mark record type for archives
       payload.record_type = 'اضابير';
       payload.recordCategory = 'DOSSIER';
@@ -4411,11 +4411,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (statusSelectInit) {
       // default and make it disabled (non-editable)
-      if (!statusSelectInit.value || String(statusSelectInit.value).trim() === '') statusSelectInit.value = 'قيد العمل';
+      if (!statusSelectInit.value || String(statusSelectInit.value).trim() === '') statusSelectInit.value = 'تم الاستلام';
       statusSelectInit.disabled = true;
       const departmentInputInit = document.getElementById('archiveDepartment');
       const syncStatusDisplay = () => {
-        if (statusDisplayInit) statusDisplayInit.value = buildArchiveStatusValue(statusSelectInit.value, departmentInputInit ? departmentInputInit.value : '');
+        const baseStatus = String(statusSelectInit.value || 'تم الاستلام').trim();
+        if (statusDisplayInit) statusDisplayInit.value = buildArchiveStatusValue(baseStatus, departmentInputInit ? departmentInputInit.value : '');
       };
       syncStatusDisplay();
       statusSelectInit.addEventListener('change', syncStatusDisplay);
