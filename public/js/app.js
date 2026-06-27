@@ -191,6 +191,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // If overdue tab opened, load data
       try {
         if (key === 'overdueDossiers') loadOverdueDossiers();
+        if (key === 'trash') loadTrash();
       } catch (e) {}
     });
   });
@@ -677,6 +678,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let itemsIncoming = [];
   let itemsReception = [];
   let itemsArchive = [];
+  let trashItems = [];
   // when non-null, renderArchive will show only archive records transferred to this circle
   let archiveListCircleFilter = null;
 
@@ -686,6 +688,162 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentPageIncoming = 1;
   let currentPageReception = 1;
   let currentPageArchive = 1;
+
+  const TRASH_STORAGE_KEY = 'diwan_trash_backup';
+
+  const saveTrashToStorage = () => {
+    try {
+      localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(trashItems || []));
+    } catch (err) {
+      console.warn('Trash backup save failed', err);
+    }
+  };
+
+  const loadTrashFromStorage = () => {
+    try {
+      const raw = localStorage.getItem(TRASH_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.warn('Trash backup load failed', err);
+      return [];
+    }
+  };
+
+  const getTrashLabel = (entity, item = {}) => {
+    if (entity === 'outgoing') return item.subject || item.recipient || item.serial || 'كتاب صادر';
+    if (entity === 'incoming') return item.subject || item.inNo || item.arriveNo || 'كتاب وارد';
+    if (entity === 'reception') return item.subject || item.name || item.requestNo || 'استقبال وشكاوى';
+    if (entity === 'archive') return item.projectName || item.subject || item.recipient || 'أضبارة';
+    return item && item.subject ? item.subject : 'سجل';
+  };
+
+  const registerDeletedRecordInTrash = (entity, item) => {
+    const normalized = item && typeof item === 'object' ? { ...item } : { value: item };
+    const existingIndex = trashItems.findIndex(tr => tr.entity === entity && String(tr.id) === String(normalized.id));
+    const record = {
+      entity,
+      id: normalized.id !== undefined ? normalized.id : null,
+      item: normalized,
+      deletedAt: new Date().toISOString(),
+      label: getTrashLabel(entity, normalized),
+    };
+    if (existingIndex >= 0) trashItems[existingIndex] = record;
+    else trashItems.unshift(record);
+    saveTrashToStorage();
+  };
+
+  const loadTrash = async () => {
+    try {
+      const serverRows = await fetchJson(`${API_BASE}/trash`);
+      const serverItems = Array.isArray(serverRows) ? serverRows : [];
+      const localItems = loadTrashFromStorage();
+      const serverKeySet = new Set(serverItems.map(row => `${row.entity}:${row.item && row.item.id !== undefined ? row.item.id : row.id}`));
+      const merged = [
+        ...serverItems.map(row => ({
+          entity: row.entity,
+          id: row.item && row.item.id !== undefined ? row.item.id : row.id,
+          item: row.item ? { ...row.item } : {},
+          deletedAt: row.deletedAt || row.item?.deletedAt || null,
+          label: getTrashLabel(row.entity, row.item || {}),
+        })),
+        ...localItems.filter(row => !serverKeySet.has(`${row.entity}:${row.item && row.item.id !== undefined ? row.item.id : row.id}`))
+      ];
+      trashItems = merged;
+    } catch (error) {
+      console.warn('Load trash failed:', error);
+      trashItems = loadTrashFromStorage();
+    }
+    saveTrashToStorage();
+    try { renderTrash(); } catch (e) {}
+  };
+
+  const restoreTrashItem = async (record) => {
+    if (!canManageSensitiveActions()) return alert('هذه العملية متاحة فقط للمشرف العام والمشرف.');
+    const entity = record && record.entity;
+    const item = record && record.item ? { ...record.item } : {};
+    if (!entity) return;
+    if (entity === 'archive') {
+      itemsArchive = itemsArchive.some(existing => String(existing.id) === String(item.id)) ? itemsArchive : [item, ...itemsArchive];
+      saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
+      trashItems = trashItems.filter(tr => !(tr.entity === entity && String(tr.id) === String(item.id)));
+      saveTrashToStorage();
+      renderArchive(archiveSearchInput ? archiveSearchInput.value : '');
+      renderTrash();
+      return;
+    }
+    try {
+      await fetchJson(`${API_BASE}/trash/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ entity, id: item.id }),
+      });
+      if (entity === 'outgoing') {
+        if (!items.some(existing => String(existing.id) === String(item.id))) items.unshift(item);
+        saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, items);
+        render(searchInput.value);
+      } else if (entity === 'incoming') {
+        if (!itemsIncoming.some(existing => String(existing.id) === String(item.id))) itemsIncoming.unshift(item);
+        saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, itemsIncoming);
+        renderIncoming(searchInputIncoming.value);
+      } else if (entity === 'reception') {
+        if (!itemsReception.some(existing => String(existing.id) === String(item.id))) itemsReception.unshift(item);
+        saveLocalBackup(LOCAL_STORAGE_KEYS.reception, itemsReception);
+        renderReception(searchInputReception.value);
+      }
+      trashItems = trashItems.filter(tr => !(tr.entity === entity && String(tr.id) === String(item.id)));
+      saveTrashToStorage();
+      renderTrash();
+    } catch (error) {
+      console.error('Restore trash item failed', error);
+      alert('تعذر استرجاع السجل من سلة المهملات.');
+    }
+  };
+
+  const permanentDeleteTrashItem = async (record) => {
+    if (!canManageSensitiveActions()) return alert('هذه العملية متاحة فقط للمشرف العام والمشرف.');
+    const entity = record && record.entity;
+    const item = record && record.item ? { ...record.item } : {};
+    if (!entity) return;
+    if (entity === 'archive') {
+      trashItems = trashItems.filter(tr => !(tr.entity === entity && String(tr.id) === String(item.id)));
+      saveTrashToStorage();
+      renderTrash();
+      return;
+    }
+    try {
+      await fetchJson(`${API_BASE}/trash/permanent-delete`, {
+        method: 'POST',
+        body: JSON.stringify({ entity, id: item.id }),
+      });
+      trashItems = trashItems.filter(tr => !(tr.entity === entity && String(tr.id) === String(item.id)));
+      saveTrashToStorage();
+      renderTrash();
+    } catch (error) {
+      console.error('Permanent delete trash item failed', error);
+      alert('تعذر حذف السجل نهائياً.');
+    }
+  };
+
+  const emptyTrash = async () => {
+    if (!canManageSensitiveActions()) return alert('هذه العملية متاحة فقط للمشرف العام والمشرف.');
+    if (!trashItems.length) return;
+    if (!confirm('هل تريد إفراغ سلة المهملات بالكامل؟')) return;
+    const pending = [...trashItems];
+    for (const record of pending) {
+      if (record.entity === 'archive') continue;
+      try {
+        await fetchJson(`${API_BASE}/trash/permanent-delete`, {
+          method: 'POST',
+          body: JSON.stringify({ entity: record.entity, id: record.id }),
+        });
+      } catch (e) {
+        console.warn('Failed to clear trash for', record.entity, record.id, e);
+      }
+    }
+    trashItems = [];
+    saveTrashToStorage();
+    renderTrash();
+  };
 
   const load = async () => {
     try {
@@ -1487,9 +1645,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         deleteBtn.addEventListener('click', async () => {
           if (!canManageArchive) return;
           if (!confirm('هل تريد حذف هذا السجل؟')) return;
+          registerDeletedRecordInTrash('archive', it);
           itemsArchive = itemsArchive.filter(x => x !== it);
           saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
           renderArchive(filter);
+          renderTrash();
         });
       }
       if (transferBtn) {
@@ -3078,13 +3238,15 @@ document.addEventListener('DOMContentLoaded', async () => {
           try {
             if (it.id) await deleteFromServer(`/api/outgoing/${it.id}`);
           } catch (error) {
-          console.error('Delete outgoing failed', error);
-          alert('تعذر حذف السجل من الخادم.');
-          return;
-        }
+            console.error('Delete outgoing failed', error);
+            alert('تعذر حذف السجل من الخادم.');
+            return;
+          }
+          registerDeletedRecordInTrash('outgoing', it);
           items = items.filter(x => x !== it);
           saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, items);
           render(searchInput.value);
+          renderTrash();
         });
       }
       tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'outgoing', null, it.id));
@@ -3170,13 +3332,15 @@ document.addEventListener('DOMContentLoaded', async () => {
           try {
             if (it.id) await deleteFromServer(`/api/incoming/${it.id}`);
           } catch (error) {
-          console.error('Delete incoming failed', error);
-          alert('تعذر حذف السجل من الخادم.');
-          return;
-        }
+            console.error('Delete incoming failed', error);
+            alert('تعذر حذف السجل من الخادم.');
+            return;
+          }
+          registerDeletedRecordInTrash('incoming', it);
           itemsIncoming = itemsIncoming.filter(x => x !== it);
           saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, itemsIncoming);
           renderIncoming(searchInputIncoming.value);
+          renderTrash();
         });
       }
       tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'incoming', null, it.id));
@@ -3269,13 +3433,15 @@ document.addEventListener('DOMContentLoaded', async () => {
           try {
             if (it.id) await deleteFromServer(`/api/reception/${it.id}`);
           } catch (error) {
-          console.error('Delete reception failed', error);
-          alert('تعذر حذف السجل من الخادم.');
-          return;
-        }
+            console.error('Delete reception failed', error);
+            alert('تعذر حذف السجل من الخادم.');
+            return;
+          }
+          registerDeletedRecordInTrash('reception', it);
           itemsReception = itemsReception.filter(x => x !== it);
           saveLocalBackup(LOCAL_STORAGE_KEYS.reception, itemsReception);
           renderReception(searchInputReception.value);
+          renderTrash();
         });
       }
       tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'reception', null, it.id));
@@ -3295,6 +3461,87 @@ document.addEventListener('DOMContentLoaded', async () => {
     const wrapper = document.querySelector('#receptionTable').parentElement;
     if (!document.getElementById('receptionPagination')) wrapper.appendChild(pag);
   };
+
+  const renderTrash = () => {
+    const tbody = document.querySelector('#trashTable tbody');
+    if (!tbody) return;
+    const rows = Array.isArray(trashItems) ? trashItems : [];
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5">لا توجد سجلات في سلة المهملات.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    rows.forEach(record => {
+      const tr = document.createElement('tr');
+      const label = record.label || 'سجل';
+      const entityLabel = record.entity === 'outgoing' ? 'بريد صادر' : record.entity === 'incoming' ? 'بريد وارد' : record.entity === 'reception' ? 'استقبال وشكاوي' : record.entity === 'archive' ? 'أضبارة' : 'سجل';
+      const deletedAt = record.deletedAt ? new Date(record.deletedAt).toLocaleString('ar-SY') : '-';
+      tr.innerHTML = `
+        <td class="row-select"><input type="checkbox" ${record._selected ? 'checked' : ''} aria-label="تحديد السطر" /></td>
+        <td>${entityLabel}</td>
+        <td>${label}</td>
+        <td>${deletedAt}</td>
+        <td class="actions">
+          <button class="btn small" data-action="restore">تراجع عن الحذف</button>
+          <button class="btn small danger" data-action="delete">حذف نهائي</button>
+        </td>
+      `;
+      const checkbox = tr.querySelector('.row-select input[type="checkbox"]');
+      if (record._selected) tr.classList.add('selected');
+      if (checkbox) {
+        checkbox.addEventListener('change', (e) => {
+          record._selected = e.target.checked;
+          tr.classList.toggle('selected', e.target.checked);
+          updateSelectAllCheckboxState(document.getElementById('selectAllTrash'), rows);
+        });
+      }
+      const restoreBtn = tr.querySelector('[data-action="restore"]');
+      const deleteBtn = tr.querySelector('[data-action="delete"]');
+      if (restoreBtn) restoreBtn.addEventListener('click', () => restoreTrashItem(record));
+      if (deleteBtn) deleteBtn.addEventListener('click', () => permanentDeleteTrashItem(record));
+      tbody.appendChild(tr);
+    });
+    updateSelectAllCheckboxState(document.getElementById('selectAllTrash'), rows);
+  };
+
+  const trashRestoreSelectedBtn = document.getElementById('trashRestoreSelectedBtn');
+  const trashDeleteSelectedBtn = document.getElementById('trashDeleteSelectedBtn');
+  const trashEmptyBtn = document.getElementById('trashEmptyBtn');
+  const selectAllTrashCheckbox = document.getElementById('selectAllTrash');
+
+  if (trashRestoreSelectedBtn) {
+    trashRestoreSelectedBtn.addEventListener('click', async () => {
+      if (!canManageSensitiveActions()) return alert('هذه العملية متاحة فقط للمشرف العام والمشرف.');
+      const selected = trashItems.filter(it => it._selected);
+      if (!selected.length) return alert('لم يتم اختيار أي سجل للاسترجاع.');
+      for (const record of selected) {
+        await restoreTrashItem(record);
+      }
+    });
+  }
+
+  if (trashDeleteSelectedBtn) {
+    trashDeleteSelectedBtn.addEventListener('click', async () => {
+      if (!canManageSensitiveActions()) return alert('هذه العملية متاحة فقط للمشرف العام والمشرف.');
+      const selected = trashItems.filter(it => it._selected);
+      if (!selected.length) return alert('لم يتم اختيار أي سجل للحذف النهائي.');
+      if (!confirm(`هل تريد حذف ${selected.length} سجل${selected.length > 1 ? 'اً' : ''} نهائياً؟`)) return;
+      for (const record of selected) {
+        await permanentDeleteTrashItem(record);
+      }
+    });
+  }
+
+  if (trashEmptyBtn) {
+    trashEmptyBtn.addEventListener('click', () => emptyTrash());
+  }
+
+  if (selectAllTrashCheckbox) {
+    selectAllTrashCheckbox.addEventListener('change', (e) => {
+      trashItems.forEach(it => { it._selected = e.target.checked; });
+      renderTrash();
+    });
+  }
 
   // Form handling and reset
   cancelBtn.addEventListener('click', clearForm);
@@ -4704,8 +4951,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const getSensitiveActionTitle = (allow) => allow ? '' : 'هذه العملية متاحة فقط للمشرف العام والمشرف';
   const getAllowedTabsForRole = (userOrRole) => {
     const role = typeof userOrRole === 'string' ? userOrRole : normalizeRoleForUser(userOrRole);
-    if (role === 'مشرف عام') return ['outgoing', 'incoming', 'reception', 'search', 'archives', 'circles', 'users', 'settings'];
-    if (role === 'مشرف') return ['outgoing', 'incoming', 'reception', 'search', 'archives', 'circles'];
+    if (role === 'مشرف عام') return ['outgoing', 'incoming', 'reception', 'search', 'archives', 'circles', 'trash', 'users', 'settings'];
+    if (role === 'مشرف') return ['outgoing', 'incoming', 'reception', 'search', 'archives', 'circles', 'trash'];
     if (role === 'ديوان') return ['outgoing', 'incoming', 'reception', 'search'];
     if (role === 'اضابير') return ['archives'];
     if (circles.includes(role)) return ['circles'];
@@ -4907,6 +5154,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadCircleMails(),
         loadArchive(),
         loadHistories(),
+        loadTrash(),
         loadUsers()
       ]);
 
@@ -4974,7 +5222,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       itemsIncoming = useLocalBackupIfEmpty([], LOCAL_STORAGE_KEYS.incoming, localSeedIncoming);
       itemsReception = useLocalBackupIfEmpty([], LOCAL_STORAGE_KEYS.reception, localSeedReception);
       itemsArchive = useLocalBackupIfEmpty([], LOCAL_STORAGE_KEYS.archive, []);
-      render(); renderIncoming(); renderReception(); renderArchive(); renderCircles(); updateDashboardStats();
+      render(); renderIncoming(); renderReception(); renderArchive(); renderCircles(); renderTrash(); updateDashboardStats();
     }
   };
 
@@ -5090,8 +5338,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (loggedInUserEl) loggedInUserEl.textContent = `أهلاً، ${user.username}`;
         // Load data and initialize UI
         (async () => {
-          await Promise.all([load(), loadIncoming(), loadReception(), loadCircleMails(), loadArchive(), loadHistories(), loadUsers()]);
-          applyPermissions(); render(); renderIncoming(); renderReception(); renderArchive(); renderCircles(); updateDashboardStats();
+          await Promise.all([load(), loadIncoming(), loadReception(), loadCircleMails(), loadArchive(), loadHistories(), loadTrash(), loadUsers()]);
+          applyPermissions(); render(); renderIncoming(); renderReception(); renderArchive(); renderCircles(); renderTrash(); updateDashboardStats();
           try { await checkDelays(); } catch(e){}
           setInterval(checkDelays, 60 * 60 * 1000);
         })();

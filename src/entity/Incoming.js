@@ -78,5 +78,9 @@ module.exports = new EntitySchema({
       type: 'datetime',
       createDate: true,
     },
+    deletedAt: {
+      type: 'datetime',
+      nullable: true,
+    },
   },
 });

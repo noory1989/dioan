@@ -31,6 +31,7 @@
           <li class="tab" data-tab="archives"><i class="fa-solid fa-box-archive"></i> الأضابير</li>
           <li class="tab" data-tab="overdueDossiers"><i class="fa-solid fa-clock-exclamation"></i> الأضابير المتأخرة</li>
           <li class="tab" data-tab="circles"><i class="fa-solid fa-building"></i> الدوائر</li>
+          <li class="tab" data-tab="trash"><i class="fa-solid fa-trash-can"></i> سلة المهملات</li>
           <li class="tab" data-tab="users"><i class="fa-solid fa-users-gear"></i> المستخدمون والصلاحيات</li>
           <li class="tab" data-tab="settings"><i class="fa-solid fa-gear"></i> الإعدادات</li>
         </ul>
@@ -514,6 +515,36 @@
             <div id="globalSearchResults" class="search-results"></div>
           </div>
         </div>
+        <div id="trash" class="tab-content" style="display:none">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">إدارة السجلات المحذوفة</p>
+              <h2>سلة المهملات</h2>
+            </div>
+            <div class="page-actions">
+              <button id="trashRestoreSelectedBtn" class="btn secondary">تراجع عن الحذف للمحدد</button>
+              <button id="trashDeleteSelectedBtn" class="btn secondary danger">حذف المحدد</button>
+              <button id="trashEmptyBtn" class="btn secondary">إفراغ سلة المهملات</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="table-wrap">
+              <table id="trashTable" class="data-table">
+                <thead>
+                  <tr>
+                    <th class="row-select"><input type="checkbox" id="selectAllTrash" aria-label="تحديد الكل" /></th>
+                    <th>النوع</th>
+                    <th>العنوان</th>
+                    <th>تاريخ الحذف</th>
+                    <th>إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div id="circles" class="tab-content" style="display:none">
           <div class="page-heading">
             <div>

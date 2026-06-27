@@ -183,6 +183,15 @@ const clearPreviousCircleMailWorkflowState = async (cmRepo, sourceEntity, source
 
 const getRepository = (entityName) => AppDataSource.getRepository(entityName);
 
+const hasSoftDeleteField = (repo) => {
+  try {
+    return Array.isArray(repo && repo.metadata && repo.metadata.columns)
+      && repo.metadata.columns.some(col => col.propertyName === 'deletedAt');
+  } catch (e) {
+    return false;
+  }
+};
+
 const createEntityRoutes = (routeBase, entityName) => {
   const sanitizeRecord = (record) => {
     if (!record) return record;
@@ -205,7 +214,16 @@ const createEntityRoutes = (routeBase, entityName) => {
   app.get(`/api/${routeBase}`, async (req, res) => {
     if (!ensureDb(res)) return;
     try {
-      let records = await getRepository(entityName).find({ order: { id: 'DESC' } });
+      const repo = getRepository(entityName);
+      let records;
+      if (hasSoftDeleteField(repo)) {
+        records = await repo.createQueryBuilder('record')
+          .where('record.deletedAt IS NULL')
+          .orderBy('record.id', 'DESC')
+          .getMany();
+      } else {
+        records = await repo.find({ order: { id: 'DESC' } });
+      }
       records = sanitizeRecords(records);
       res.json(records);
     } catch (error) {
@@ -450,7 +468,12 @@ const createEntityRoutes = (routeBase, entityName) => {
     if (!ensureDb(res)) return;
     try {
       const id = Number(req.params.id);
-      await getRepository(entityName).delete(id);
+      const repo = getRepository(entityName);
+      if (hasSoftDeleteField(repo)) {
+        await repo.update(id, { deletedAt: new Date() });
+        return res.json({ deleted: true, movedToTrash: true });
+      }
+      await repo.delete(id);
       res.json({ deleted: true });
     } catch (error) {
       console.error(`Failed to delete ${entityName}:`, error);
@@ -480,6 +503,70 @@ createEntityRoutes('circlemail', 'CircleMail');
 createEntityRoutes('history', 'History');
 createEntityRoutes('archive', 'Archive');
 createEntityRoutes('overdues', 'Overdue');
+
+app.get('/api/trash', async (req, res) => {
+  if (!ensureDb(res)) return;
+  try {
+    const entities = [
+      { entityName: 'Outgoing', routeBase: 'outgoing' },
+      { entityName: 'Incoming', routeBase: 'incoming' },
+      { entityName: 'Reception', routeBase: 'reception' },
+    ];
+    const items = [];
+    for (const { entityName, routeBase } of entities) {
+      const repo = getRepository(entityName);
+      if (!hasSoftDeleteField(repo)) continue;
+      const rows = await repo.createQueryBuilder('record')
+        .where('record.deletedAt IS NOT NULL')
+        .orderBy('record.id', 'DESC')
+        .getMany();
+      items.push(...rows.map(item => ({ entity: routeBase, item })));
+    }
+    res.json(items);
+  } catch (error) {
+    console.error('Failed to fetch trash data:', error);
+    res.status(500).json({ error: 'Failed to fetch trash data' });
+  }
+});
+
+app.post('/api/trash/restore', async (req, res) => {
+  if (!ensureDb(res)) return;
+  try {
+    const { entity, id } = req.body || {};
+    const entityName = {
+      outgoing: 'Outgoing',
+      incoming: 'Incoming',
+      reception: 'Reception',
+    }[String(entity || '').toLowerCase()];
+    if (!entityName) return res.status(400).json({ error: 'Unsupported trash entity' });
+    const repo = getRepository(entityName);
+    if (!hasSoftDeleteField(repo)) return res.status(400).json({ error: 'Entity does not support trash' });
+    await repo.update(Number(id), { deletedAt: null });
+    res.json({ restored: true });
+  } catch (error) {
+    console.error('Failed to restore trash item:', error);
+    res.status(500).json({ error: error && error.message ? error.message : 'Failed to restore item' });
+  }
+});
+
+app.post('/api/trash/permanent-delete', async (req, res) => {
+  if (!ensureDb(res)) return;
+  try {
+    const { entity, id } = req.body || {};
+    const entityName = {
+      outgoing: 'Outgoing',
+      incoming: 'Incoming',
+      reception: 'Reception',
+    }[String(entity || '').toLowerCase()];
+    if (!entityName) return res.status(400).json({ error: 'Unsupported trash entity' });
+    const repo = getRepository(entityName);
+    await repo.delete(Number(id));
+    res.json({ deleted: true });
+  } catch (error) {
+    console.error('Failed to permanently delete trash item:', error);
+    res.status(500).json({ error: error && error.message ? error.message : 'Failed to permanently delete item' });
+  }
+});
 
 // Custom controller: save a new dossier and initialize workflow fields
 app.post('/api/dossiers', async (req, res) => {
