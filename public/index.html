@@ -18,7 +18,6 @@
         </div>
         <div class="topbar-right">
           <div id="userInfo" class="user-info" style="display: none;"><i class="fa-solid fa-user-check"></i><span id="loggedInUser"></span><button id="logoutBtn" class="btn logout-btn"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</button></div>
-          <div style="display:inline-block;margin-left:8px"><button id="hardRefreshBtn" class="btn secondary" title="تحديث الواجهة دون تسجيل خروج">تحديث الواجهة</button></div>
           <div class="date-info"><span id="current-date"></span></div>
         </div>
       </div>
@@ -31,9 +30,14 @@
           <li class="tab" data-tab="archives"><i class="fa-solid fa-box-archive"></i> الأضابير</li>
           <li class="tab" data-tab="overdueDossiers"><i class="fa-solid fa-clock-exclamation"></i> الأضابير المتأخرة</li>
           <li class="tab" data-tab="circles"><i class="fa-solid fa-building"></i> الدوائر</li>
-          <li class="tab" data-tab="trash"><i class="fa-solid fa-trash-can"></i> سلة المهملات</li>
+          <li class="tab" data-tab="trash"><i class="fa-solid fa-trash-can"></i> سلة المحذوفات</li>
           <li class="tab" data-tab="users"><i class="fa-solid fa-users-gear"></i> المستخدمون والصلاحيات</li>
           <li class="tab" data-tab="settings"><i class="fa-solid fa-gear"></i> الإعدادات</li>
+          <li class="tab refresh-tab">
+            <button id="hardRefreshBtn" class="tab-action-btn" title="تحديث الواجهة دون تسجيل خروج">
+              <i class="fa-solid fa-arrows-rotate"></i> الشاشة الرئيسية
+            </button>
+          </li>
         </ul>
       </nav>
     </header>
@@ -519,12 +523,12 @@
           <div class="page-heading">
             <div>
               <p class="eyebrow">إدارة السجلات المحذوفة</p>
-              <h2>سلة المهملات</h2>
+              <h2>سلة المحذوفات</h2>
             </div>
             <div class="page-actions">
               <button id="trashRestoreSelectedBtn" class="btn secondary">تراجع عن الحذف للمحدد</button>
               <button id="trashDeleteSelectedBtn" class="btn secondary danger">حذف المحدد</button>
-              <button id="trashEmptyBtn" class="btn secondary">إفراغ سلة المهملات</button>
+              <button id="trashEmptyBtn" class="btn secondary">إفراغ سلة المحذوفات</button>
             </div>
           </div>
           <div class="card">

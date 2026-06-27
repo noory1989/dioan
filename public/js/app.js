@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   dateEl.textContent = formatter.format(now);
 
   // Tabs behavior: toggle active class and content
-  const tabs = document.querySelectorAll('.tab');
+  const tabs = document.querySelectorAll('.tab[data-tab]');
   const dashboardHome = document.getElementById('dashboardHome');
   const statsSection = document.getElementById('dashboardStats');
   const statIncomingEl = document.getElementById('statIncoming');
@@ -177,11 +177,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
+      const key = tab.getAttribute('data-tab');
+      if (!key) return;
       // push current view before navigating
       pushCurrentToHistory();
       tabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      const key = tab.getAttribute('data-tab');
       if (dashboardHome) dashboardHome.style.display = 'none';
       // show the selected tab content and hide all others
       document.querySelectorAll('.tab-content').forEach(c => { if (c.id === key) c.style.display = ''; else c.style.display = 'none'; });
@@ -5238,7 +5239,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Hard refresh button: reload UI while preserving session (do not clear sessionStorage)
   const hardRefreshBtn = document.getElementById('hardRefreshBtn');
   if (hardRefreshBtn) {
-    hardRefreshBtn.addEventListener('click', async () => {
+    hardRefreshBtn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       try {
         // Save minimal UI state if needed
         const preserved = {
