@@ -807,9 +807,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const targetCm = findCircleMail(safePayload);
       if (targetCm && String(targetCm.status) === 'finished') {
-        // allow unfinish only via update-by-key with updates.status === 'open' and only if currentUser is 'مشرف'
+        // allow unfinish only via update-by-key with updates.status === 'open' and only if currentUser is a supervisor role
         if (endpoint && endpoint.includes('/api/circlemail/update-by-key') && safePayload && safePayload.updates && safePayload.updates.status === 'open') {
-          if (!(currentUser && currentUser.role === 'مشرف')) {
+          if (!(currentUser && (currentUser.role === 'مشرف عام' || currentUser.role === 'مشرف'))) {
             throw new Error('لا يمكنك التراجع عن إنهاء المعاملة إلا كمشرف.');
           }
           // allowed
@@ -1453,6 +1453,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const tr = document.createElement('tr');
       const projectName = it.projectName || it.subject || it.recipient || it.serial || 'غير مسمى';
       const statusLabel = getArchiveStatusDisplayValue(it.status) || '-';
+      const archiveFinished = isArchiveFinishedStatus(it.status);
+      const canManageArchive = canManageSensitiveActions();
       tr.innerHTML = `
         <td class="row-select"><input type="checkbox" ${it._selected ? 'checked' : ''} aria-label="تحديد السطر" /></td>
         <td>${projectName}</td>
@@ -1460,10 +1462,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         <td>${statusLabel}</td>
         <td class="actions">
           <div class="row-action-buttons">
-            <button class="btn small" data-action="transfer">تحويل</button>
-            <button class="btn small" data-action="edit">تعديل</button>
-            <button class="btn small" data-action="finish">${isArchiveFinishedStatus(it.status) ? 'تراجع عن الانتهاء' : 'انهاء'}</button>
-            <button class="btn small" data-action="delete">حذف</button>
+            <button class="btn small" data-action="transfer" ${archiveFinished ? 'disabled' : ''}>تحويل</button>
+            <button class="btn small" data-action="edit" ${archiveFinished ? 'disabled' : ''}>تعديل</button>
+            <button class="btn small" data-action="finish" ${!canManageArchive ? 'disabled' : ''}>${archiveFinished ? 'تراجع عن الانتهاء' : 'انهاء'}</button>
+            <button class="btn small" data-action="delete" ${!canManageArchive ? 'disabled' : ''}>حذف</button>
           </div>
         </td>
       `;
@@ -1476,23 +1478,34 @@ document.addEventListener('DOMContentLoaded', async () => {
           updateSelectAllCheckboxState(selectAllArchiveCheckbox, rows);
         });
       }
-      // delete
-      tr.querySelector('[data-action="delete"]').addEventListener('click', async () => {
-        if (!confirm('هل تريد حذف هذا السجل؟')) return;
-        itemsArchive = itemsArchive.filter(x => x !== it);
-        saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
-        renderArchive(filter);
-      });
-      // transfer
+      const deleteBtn = tr.querySelector('[data-action="delete"]');
       const transferBtn = tr.querySelector('[data-action="transfer"]');
-      if (transferBtn) transferBtn.addEventListener('click', () => showTransferModal(it, 'archive', null, it.id));
-      // finish / unfinish
-      tr.querySelector('[data-action="finish"]').addEventListener('click', () => {
-        const currentDepartment = inferArchiveDepartmentFromItem(it) || getArchiveDepartmentFromStatus(it.status);
-        it.status = isArchiveFinishedStatus(it.status) ? buildArchiveStatusValue('قيد العمل', currentDepartment) : 'منتهية';
-        saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
-        renderArchive(filter);
-      });
+      const editBtn = tr.querySelector('[data-action="edit"]');
+      const finishBtn = tr.querySelector('[data-action="finish"]');
+      if (deleteBtn) {
+        deleteBtn.title = getSensitiveActionTitle(canManageArchive);
+        deleteBtn.addEventListener('click', async () => {
+          if (!canManageArchive) return;
+          if (!confirm('هل تريد حذف هذا السجل؟')) return;
+          itemsArchive = itemsArchive.filter(x => x !== it);
+          saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
+          renderArchive(filter);
+        });
+      }
+      if (transferBtn) {
+        transferBtn.title = archiveFinished ? 'لا يمكن التحويل بعد إنهاء الأضبارة' : '';
+        transferBtn.addEventListener('click', () => showTransferModal(it, 'archive', null, it.id));
+      }
+      if (finishBtn) {
+        finishBtn.title = getSensitiveActionTitle(canManageArchive);
+        finishBtn.addEventListener('click', () => {
+          if (!canManageArchive) return;
+          const currentDepartment = inferArchiveDepartmentFromItem(it) || getArchiveDepartmentFromStatus(it.status);
+          it.status = isArchiveFinishedStatus(it.status) ? buildArchiveStatusValue('قيد العمل', currentDepartment) : 'منتهية';
+          saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
+          renderArchive(filter);
+        });
+      }
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => { populateArchiveForm(it); });
       const viewBtnArchive = tr.querySelector('[data-action="view"]');
       if (viewBtnArchive) viewBtnArchive.addEventListener('click', () => { showAttachmentsModal(it.attachments || [], 'مرفقات الأضبارة'); });
@@ -1520,7 +1533,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const mailBadge = `<div class="${mailBadgeClass}">${mailCount}</div>`;
       const dossierBadge = `<div class="${dossierBadgeClass}" style="margin-left:6px">${dossierCount}</div>`;
       card.innerHTML = `<div class="circle-name">${name}</div><div style="display:flex;gap:6px;align-items:center">${mailBadge}${dossierBadge}</div>`;
-      if (currentUser && currentUser.role !== 'مشرف' && currentUser.role !== name) {
+      if (currentUser && !isSupervisorRole(currentUser) && currentUser.role !== name) {
         card.classList.add('disabled');
         card.title = 'ليس لديك صلاحية الوصول لهذه الدائرة';
       } else {
@@ -1814,9 +1827,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     addAttachmentsBtn.addEventListener('click', () => openAddAttachments(cm));
     
     const transferBtn = document.createElement('button'); transferBtn.className = 'btn'; transferBtn.textContent = 'تحويل';
+    transferBtn.disabled = cm.status === 'finished';
+    transferBtn.title = cm.status === 'finished' ? 'لا يمكن التحويل بعد إنهاء المعاملة' : '';
     transferBtn.addEventListener('click', () => showTransferModal(payload, cm.sourceEntity, cm.circleName, cm.sourceId));
+    const canManageCircleMail = canManageSensitiveActions();
     const finishBtn = document.createElement('button'); finishBtn.className = 'btn secondary'; finishBtn.textContent = cm.status === 'finished' ? 'تراجع عن الانتهاء' : 'انهاء المعاملة';
+    finishBtn.disabled = !canManageCircleMail;
+    finishBtn.title = getSensitiveActionTitle(canManageCircleMail);
     finishBtn.addEventListener('click', async () => {
+      if (!canManageCircleMail) return;
       try {
         const newStatus = cm.status === 'finished' ? 'open' : 'finished';
         // update by composite key
@@ -1938,15 +1957,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       try { await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: 'revert_transfer', actor: 'user' }); alert('تم تسجيل التراجع'); await loadHistories(); } catch (e) { console.error(e); alert('فشل التراجع'); }
     });
     const timelineBtn = document.createElement('button'); timelineBtn.className='btn'; timelineBtn.textContent='عرض سير المعاملة'; timelineBtn.addEventListener('click', () => showTimelineByKey(cm));
+    const canManageCircleMailDetails = canManageSensitiveActions();
     const finishBtn = document.createElement('button'); finishBtn.className='btn secondary'; finishBtn.textContent = cm.status==='finished' ? 'تراجع عن الانتهاء' : 'انهاء المعاملة';
+    finishBtn.disabled = !canManageCircleMailDetails;
+    finishBtn.title = getSensitiveActionTitle(canManageCircleMailDetails);
     finishBtn.addEventListener('click', async () => {
+      if (!canManageCircleMailDetails) return;
       if (!confirm('تأكيد تغيير حالة المعاملة؟')) return;
       try { const newStatus = cm.status==='finished' ? 'open' : 'finished'; await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: newStatus } }); await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: newStatus==='finished' ? 'finished' : 'reopened', actor: 'user' }); alert('تم تحديث الحالة'); await loadCircleMails(); } catch (e) { console.error(e); alert('فشل'); }
     });
     // explicit 'تراجع عن الانهاء' button (visible only when status is finished)
     if (cm.status === 'finished') {
       const unfinishBtn = document.createElement('button'); unfinishBtn.className = 'btn'; unfinishBtn.textContent = 'تراجع عن الانهاء';
+      unfinishBtn.disabled = !canManageCircleMailDetails;
+      unfinishBtn.title = getSensitiveActionTitle(canManageCircleMailDetails);
       unfinishBtn.addEventListener('click', async () => {
+        if (!canManageCircleMailDetails) return;
         if (!confirm('تأكيد تراجع عن الإنهاء؟')) return;
         try {
           await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: 'open' } });
@@ -2147,6 +2173,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   let _transferContext = null; // { payload, sourceEntity, fromCircle, sourceId }
   const showTransferModal = (payload, sourceEntity, fromCircle = null, sourceId = null) => {
     if (!transferModal || !transferListEl) return;
+    const finishedStatus = payload && (payload.status === 'finished' || payload.status === 'منتهية');
+    if (finishedStatus) {
+      alert('لا يمكن التحويل بعد إنهاء المعاملة أو الأضبارة.');
+      return;
+    }
     _transferContext = { payload, sourceEntity, fromCircle, sourceId };
     transferListEl.innerHTML = '';
     transferListEl.classList.add('transfer-list');
@@ -3036,19 +3067,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       }
       // attach actions
-      tr.querySelector('[data-action="delete"]').addEventListener('click', async () => {
-        if (!confirm('هل تريد حذف هذا السجل؟')) return;
-        try {
-          if (it.id) await deleteFromServer(`/api/outgoing/${it.id}`);
-        } catch (error) {
+      const deleteBtn = tr.querySelector('[data-action="delete"]');
+      const canManageOutgoing = canManageSensitiveActions();
+      if (deleteBtn) {
+        deleteBtn.disabled = !canManageOutgoing;
+        deleteBtn.title = getSensitiveActionTitle(canManageOutgoing);
+        deleteBtn.addEventListener('click', async () => {
+          if (!canManageOutgoing) return;
+          if (!confirm('هل تريد حذف هذا السجل؟')) return;
+          try {
+            if (it.id) await deleteFromServer(`/api/outgoing/${it.id}`);
+          } catch (error) {
           console.error('Delete outgoing failed', error);
           alert('تعذر حذف السجل من الخادم.');
           return;
         }
-        items = items.filter(x => x !== it);
-        saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, items);
-        render(searchInput.value);
-      });
+          items = items.filter(x => x !== it);
+          saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, items);
+          render(searchInput.value);
+        });
+      }
       tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'outgoing', null, it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateForm(it);
@@ -3121,19 +3159,26 @@ document.addEventListener('DOMContentLoaded', async () => {
           updateSelectAllCheckboxState(selectAllIncomingCheckbox, rows);
         });
       }
-      tr.querySelector('[data-action="delete"]').addEventListener('click', async () => {
-        if (!confirm('هل تريد حذف هذا السجل؟')) return;
-        try {
-          if (it.id) await deleteFromServer(`/api/incoming/${it.id}`);
-        } catch (error) {
+      const deleteBtn = tr.querySelector('[data-action="delete"]');
+      const canManageIncoming = canManageSensitiveActions();
+      if (deleteBtn) {
+        deleteBtn.disabled = !canManageIncoming;
+        deleteBtn.title = getSensitiveActionTitle(canManageIncoming);
+        deleteBtn.addEventListener('click', async () => {
+          if (!canManageIncoming) return;
+          if (!confirm('هل تريد حذف هذا السجل؟')) return;
+          try {
+            if (it.id) await deleteFromServer(`/api/incoming/${it.id}`);
+          } catch (error) {
           console.error('Delete incoming failed', error);
           alert('تعذر حذف السجل من الخادم.');
           return;
         }
-        itemsIncoming = itemsIncoming.filter(x => x !== it);
-        saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, itemsIncoming);
-        renderIncoming(searchInputIncoming.value);
-      });
+          itemsIncoming = itemsIncoming.filter(x => x !== it);
+          saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, itemsIncoming);
+          renderIncoming(searchInputIncoming.value);
+        });
+      }
       tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'incoming', null, it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateIncomingForm(it);
@@ -3213,19 +3258,26 @@ document.addEventListener('DOMContentLoaded', async () => {
           updateSelectAllCheckboxState(selectAllReceptionCheckbox, rows);
         });
       }
-      tr.querySelector('[data-action="delete"]').addEventListener('click', async () => {
-        if (!confirm('هل تريد حذف هذا السجل؟')) return;
-        try {
-          if (it.id) await deleteFromServer(`/api/reception/${it.id}`);
-        } catch (error) {
+      const deleteBtn = tr.querySelector('[data-action="delete"]');
+      const canManageReception = canManageSensitiveActions();
+      if (deleteBtn) {
+        deleteBtn.disabled = !canManageReception;
+        deleteBtn.title = getSensitiveActionTitle(canManageReception);
+        deleteBtn.addEventListener('click', async () => {
+          if (!canManageReception) return;
+          if (!confirm('هل تريد حذف هذا السجل؟')) return;
+          try {
+            if (it.id) await deleteFromServer(`/api/reception/${it.id}`);
+          } catch (error) {
           console.error('Delete reception failed', error);
           alert('تعذر حذف السجل من الخادم.');
           return;
         }
-        itemsReception = itemsReception.filter(x => x !== it);
-        saveLocalBackup(LOCAL_STORAGE_KEYS.reception, itemsReception);
-        renderReception(searchInputReception.value);
-      });
+          itemsReception = itemsReception.filter(x => x !== it);
+          saveLocalBackup(LOCAL_STORAGE_KEYS.reception, itemsReception);
+          renderReception(searchInputReception.value);
+        });
+      }
       tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'reception', null, it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateReceptionForm(it);
@@ -3321,6 +3373,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     archiveForm._attachments = item.attachments || {};
     // enforce duration lock based on per-section saved timestamps if present
     try { enforceDurationLockForForm(archiveForm, item); } catch (e) {}
+    const archiveFinished = isArchiveFinishedStatus(item.status);
+    if (archiveFinished) {
+      archiveForm.dataset.frozen = '1';
+      archiveForm.querySelectorAll('input,select,textarea,button').forEach(el => {
+        if (!el || !el.id) return;
+        if (['archiveCancelBtn','archiveFormBackBtn','archiveSaveBtn','editArchiveBtn'].includes(el.id)) return;
+        el.disabled = true;
+      });
+      const note = archiveForm.querySelector('.frozen-note');
+      if (!note) {
+        const frozenNote = document.createElement('div');
+        frozenNote.className = 'frozen-note';
+        frozenNote.style.background = '#fff1f2';
+        frozenNote.style.padding = '8px';
+        frozenNote.style.border = '1px solid #fecaca';
+        frozenNote.style.borderRadius = '6px';
+        frozenNote.style.marginBottom = '10px';
+        frozenNote.textContent = 'هذه الأضبارة منتهية ولا يمكن تعديلها أو تحويلها. لرفع القفل، يجب أن يقوم مشرف بإعادة فتحها.';
+        archiveForm.parentNode && archiveForm.parentNode.insertBefore(frozenNote, archiveForm);
+      }
+    } else {
+      delete archiveForm.dataset.frozen;
+      archiveForm.querySelectorAll('input,select,textarea,button').forEach(el => {
+        if (!el || !el.id) return;
+        el.disabled = false;
+      });
+      const note = archiveForm.querySelector('.frozen-note'); if (note) note.remove();
+    }
     // if this circle mail has lockedAt set, disable expected-duration inputs
     try {
       const locked = item.lockedAt || item.locked_at || null;
@@ -3564,6 +3644,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (refreshAllBtn) {
     // renamed visually to 'انهاء المحدد' — mark selected records as finished
     refreshAllBtn.addEventListener('click', () => {
+      if (!canManageSensitiveActions()) return alert('هذه العملية متاحة فقط للمشرف العام والمشرف.');
       const selected = (itemsArchive || []).filter(it => it._selected);
       if (!selected.length) return alert('لم يتم اختيار أي سجل لإنهائه.');
       if (!confirm(`هل تريد وضع حالة 'منتهية' على ${selected.length} سجل${selected.length>1?'اً':''}؟`)) return;
@@ -3576,6 +3657,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (deleteSelectedBtn) {
     deleteSelectedBtn.addEventListener('click', () => {
+      if (!canManageSensitiveActions()) return alert('هذه العملية متاحة فقط للمشرف العام والمشرف.');
       const selected = itemsArchive.filter(it => it._selected);
       if (!selected.length) return alert('لم يتم اختيار سجلات للحذف.');
       if (!confirm(`هل تريد حذف ${selected.length} سجل${selected.length>1?'ان':''}؟`)) return;
@@ -4610,9 +4692,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Users & Permissions Logic ---
   let users = [];
 
+  const normalizeRoleForUser = (user) => {
+    if (!user) return null;
+    return user.username === 'admin' && user.role === 'مشرف' ? 'مشرف عام' : user.role;
+  };
+  const isSupervisorRole = (userOrRole) => {
+    const role = typeof userOrRole === 'string' ? userOrRole : normalizeRoleForUser(userOrRole);
+    return role === 'مشرف عام' || role === 'مشرف';
+  };
+  const canManageSensitiveActions = () => isSupervisorRole(currentUser);
+  const getSensitiveActionTitle = (allow) => allow ? '' : 'هذه العملية متاحة فقط للمشرف العام والمشرف';
+  const getAllowedTabsForRole = (userOrRole) => {
+    const role = typeof userOrRole === 'string' ? userOrRole : normalizeRoleForUser(userOrRole);
+    if (role === 'مشرف عام') return ['outgoing', 'incoming', 'reception', 'search', 'archives', 'circles', 'users', 'settings'];
+    if (role === 'مشرف') return ['outgoing', 'incoming', 'reception', 'search', 'archives', 'circles'];
+    if (role === 'ديوان') return ['outgoing', 'incoming', 'reception', 'search'];
+    if (role === 'اضابير') return ['archives'];
+    if (circles.includes(role)) return ['circles'];
+    return [];
+  };
+
   const renderUserForm = (user = null) => {
     if (!addUserForm) return;
-    const roles = ['مشرف', 'ديوان', 'اضابير', ...circles];
+    const roles = ['مشرف عام', 'مشرف', 'ديوان', 'اضابير', ...circles];
     addUserForm.innerHTML = `
       <input type="hidden" id="userId" value="${user ? user.id : ''}">
       <div class="form-row">
@@ -4666,7 +4768,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   const loadUsers = async () => {
-    if (currentUser && currentUser.role !== 'مشرف') return;
+    const effectiveRole = normalizeRoleForUser(currentUser) || currentUser?.role;
+    if (currentUser && effectiveRole !== 'مشرف عام') return;
     try {
       users = await fetchJson(`${API_BASE}/users`);
       renderUsers();
@@ -4735,17 +4838,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Login and Permissions Enforcement ---
   const applyPermissions = () => {
     if (!currentUser) return;
-    const allowedTabs = {
-      'مشرف': ['outgoing', 'incoming', 'reception', 'search', 'archives', 'circles', 'users', 'settings'],
-      'ديوان': ['outgoing', 'incoming', 'reception', 'search'],
-      'اضابير': ['archives'],
-    };
-    // For department roles, they can only see 'circles'
-    if (circles.includes(currentUser.role)) {
-      allowedTabs[currentUser.role] = ['circles'];
+    const allowedTabs = {};
+    const role = normalizeRoleForUser(currentUser) || currentUser.role;
+    if (isSupervisorRole(currentUser)) {
+      allowedTabs[role] = getAllowedTabsForRole(currentUser);
+    } else {
+      allowedTabs[role] = getAllowedTabsForRole(currentUser);
     }
 
-    const userAllowed = allowedTabs[currentUser.role] || [];
+    // For department roles, they can only see 'circles'
+    if (circles.includes(role)) {
+      allowedTabs[role] = ['circles'];
+    }
+
+    const userAllowed = allowedTabs[role] || [];
     let firstVisibleTab = null;
 
     tabs.forEach(tab => {
@@ -4768,8 +4874,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
-    // Hide stats for non-admin/diwan users
-    if (currentUser.role !== 'مشرف' && currentUser.role !== 'ديوان') {
+    // Hide stats for users without supervisor/diwan access
+    if (!isSupervisorRole(currentUser) && currentUser.role !== 'ديوان') {
       if (statsSection) statsSection.style.display = 'none';
     }
 
@@ -4783,8 +4889,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
-      currentUser = user;
-      sessionStorage.setItem('diwan_user', JSON.stringify(user));
+      currentUser = { ...user, role: normalizeRoleForUser(user) || user.role };
+      sessionStorage.setItem('diwan_user', JSON.stringify(currentUser));
       loginModal.classList.add('hidden');
       document.querySelector('main').style.display = '';
       document.querySelector('header').style.display = '';
@@ -4838,13 +4944,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Local fallback users for offline/dev testing or when server says credentials are wrong
       const localUsers = [
-        { username: 'admin', password: 'admin', role: 'مشرف' },
+        { username: 'admin', password: 'admin', role: 'مشرف عام' },
         { username: 'user', password: 'user', role: 'مستخدم' }
       ];
       const match = localUsers.find(u => u.username === username && u.password === password);
       if (match) {
         // Use local user as fallback
-        currentUser = { username: match.username, role: match.role };
+        currentUser = { username: match.username, role: normalizeRoleForUser(match) || match.role };
       } else {
         // If server said credentials wrong but user still wants to proceed, create a trial local user
         if (isAuthErrorFromServer || isNetworkOrServerError) {
@@ -4975,7 +5081,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const raw = sessionStorage.getItem('diwan_user');
       if (raw) {
         const user = JSON.parse(raw);
-        currentUser = user;
+        currentUser = { ...user, role: normalizeRoleForUser(user) || user.role };
         // show main UI
         loginModal.classList.add('hidden');
         document.querySelector('main').style.display = '';

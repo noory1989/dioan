@@ -1071,7 +1071,7 @@ app.post('/api/login', async (req, res) => {
     try {
       const { username, password } = req.body || {};
       if (username === 'admin' && password === 'admin') {
-        return res.json({ id: 0, username: 'admin', role: 'مشرف', dev: true });
+        return res.json({ id: 0, username: 'admin', role: 'مشرف عام', dev: true });
       }
       return res.status(503).json({ error: 'Database is not initialized' });
     } catch (err) {
@@ -1094,7 +1094,11 @@ app.post('/api/login', async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
     }
-    const { password: _, ...userResponse } = user;
+    const normalizedRole = user.username === 'admin' && user.role === 'مشرف' ? 'مشرف عام' : user.role;
+    if (normalizedRole !== user.role) {
+      await repo.update(user.id, { role: normalizedRole });
+    }
+    const { password: _, ...userResponse } = { ...user, role: normalizedRole };
     res.json(userResponse);
   } catch (err) {
     console.error('Login failed:', err);
@@ -1186,8 +1190,11 @@ const startServer = async () => {
       if (!admin) {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash('admin', salt);
-        await userRepo.save({ username: 'admin', password: hashedPassword, role: 'مشرف' });
+        await userRepo.save({ username: 'admin', password: hashedPassword, role: 'مشرف عام' });
         console.log('Default admin user created.');
+      } else if (admin.role === 'مشرف') {
+        await userRepo.update(admin.id, { role: 'مشرف عام' });
+        console.log('Legacy admin role updated to مشرف عام.');
       }
       console.log('TypeORM DataSource initialized (synchronize=true)');
     } catch (err) {
