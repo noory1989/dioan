@@ -110,6 +110,43 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
   };
+
+  const tableCellTooltip = document.createElement('div');
+  tableCellTooltip.id = 'tableCellTooltip';
+  tableCellTooltip.className = 'table-cell-tooltip';
+  document.body.appendChild(tableCellTooltip);
+
+  const showTableCellTooltip = (cell) => {
+    const text = cell.dataset.tooltip;
+    if (!text) return;
+    tableCellTooltip.textContent = text;
+    tableCellTooltip.style.display = 'block';
+    const rect = cell.getBoundingClientRect();
+    const maxWidth = Math.min(380, window.innerWidth - 24);
+    tableCellTooltip.style.maxWidth = `${maxWidth}px`;
+    let left = rect.left;
+    if (left + maxWidth > window.innerWidth - 12) left = window.innerWidth - maxWidth - 12;
+    if (left < 12) left = 12;
+    tableCellTooltip.style.left = `${left}px`;
+    tableCellTooltip.style.top = `${rect.bottom + 8}px`;
+  };
+
+  const hideTableCellTooltip = () => {
+    tableCellTooltip.style.display = 'none';
+  };
+
+  const annotateTooltipCells = (row) => {
+    Array.from(row.querySelectorAll('td:not(.actions):not(.row-select)')).forEach(td => {
+      const text = (td.textContent || '').trim();
+      if (!text || text === '-') return;
+      if (text.length < 40 && !text.includes('\n')) return;
+      td.classList.add('truncate-cell');
+      td.dataset.tooltip = text;
+      td.removeAttribute('title');
+      td.addEventListener('mouseenter', () => showTableCellTooltip(td));
+      td.addEventListener('mouseleave', hideTableCellTooltip);
+    });
+  };
   const goBack = () => {
     if (!navHistory.length) return;
     // Pop current state (if it matches current view) then navigate to previous
@@ -1459,6 +1496,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => { populateArchiveForm(it); });
       const viewBtnArchive = tr.querySelector('[data-action="view"]');
       if (viewBtnArchive) viewBtnArchive.addEventListener('click', () => { showAttachmentsModal(it.attachments || [], 'مرفقات الأضبارة'); });
+      annotateTooltipCells(tr);
       archiveTableBody.appendChild(tr);
     });
     updateSelectAllCheckboxState(selectAllArchiveCheckbox, filtered);
@@ -3025,6 +3063,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       tr.querySelector('[data-action="view"]').addEventListener('click', () => {
         showAttachmentsModal(it.attachments || [], 'المرفقات للكتاب الصادر');
       });
+      annotateTooltipCells(tr);
       tableBody.appendChild(tr);
     });
     updateSelectAllCheckboxState(selectAllOutgoingCheckbox, filtered);
@@ -3109,6 +3148,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       tr.querySelector('[data-action="view"]').addEventListener('click', () => {
         showAttachmentsModal(it.attachments || [], 'المرفقات للكتاب الوارد');
       });
+      annotateTooltipCells(tr);
       incomingTableBody.appendChild(tr);
     });
     updateSelectAllCheckboxState(selectAllIncomingCheckbox, filtered);
@@ -3200,6 +3240,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       tr.querySelector('[data-action="view"]').addEventListener('click', () => {
         showAttachmentsModal(it.attachments || [], 'المرفقات للاستقبال والشكاوى');
       });
+      annotateTooltipCells(tr);
       receptionTableBody.appendChild(tr);
     });
 

@@ -183,9 +183,11 @@ body{font-size:18px;font-weight:700}
 .data-table th.row-select,
 .data-table td.row-select{width:52px;text-align:center}
 .data-table td.row-select input{transform:scale(1.05)}
+.data-table td.truncate-cell{max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
 .data-table tbody tr:hover{background:linear-gradient(90deg,rgba(59,130,246,0.06),rgba(37,99,235,0.04))}
 .data-table tbody tr.selected{background:rgba(59,130,246,0.14)}
 .data-table td.actions{display:flex;gap:8px;justify-content:flex-end}
+#tableCellTooltip{position:fixed;z-index:9999;display:none;max-width:380px;min-width:180px;padding:10px 14px;background:rgba(15,23,42,0.95);color:#fff;border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,0.22);font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word;pointer-events:none;}
 .btn i.fa-solid{margin-inline-start:8px}
 
 /* Pagination Styles */
