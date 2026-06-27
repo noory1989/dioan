@@ -1552,9 +1552,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     wrap.style.justifyItems = 'stretch';
     wrap.style.padding = '18px';
 
-    // Responsive: on wider screens show 3 columns
+    // Responsive: on wider screens show 2 columns for the action buttons
     const mq = window.matchMedia('(min-width:800px)');
-    const applyCols = () => { wrap.style.gridTemplateColumns = mq.matches ? '1fr 1fr 1fr' : '1fr'; };
+    const applyCols = () => { wrap.style.gridTemplateColumns = mq.matches ? '1fr 1fr' : '1fr'; };
     applyCols(); mq.addEventListener && mq.addEventListener('change', applyCols);
 
     const makeBtn = (txt, id, bg='#1e3a8a') => {
@@ -1563,9 +1563,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       return b;
     };
 
-    const mailBtn = makeBtn('سجل البريد', 'circleActionMail', '#0b6cf6');
-    const lateBtn = makeBtn('الأضابير المتأخرة', 'circleActionLate', '#f97316');
-    const archiveBtn = makeBtn('سجل الأضابير', 'circleActionArchive', '#059669');
+    const mailBtn = makeBtn('سجل البريد', 'circleActionMail', '#059669');
+    const archiveBtn = makeBtn('سجل الأضابير', 'circleActionArchive', '#dc2626');
 
     mailBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1581,13 +1580,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       setTimeout(() => { openArchiveList(true, name); }, 50);
     });
 
-    lateBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      modal.classList.add('hidden');
-      setTimeout(() => { if (archiveLateCard) archiveLateCard.click(); else if (archivesLateView) { const cards = document.querySelector('.archives-cards'); if (cards) cards.style.display = 'none'; if (archivesLateView) archivesLateView.style.display = ''; } }, 50);
-    });
-
-    wrap.appendChild(mailBtn); wrap.appendChild(archiveBtn); wrap.appendChild(lateBtn);
+    wrap.appendChild(mailBtn); wrap.appendChild(archiveBtn);
     body.appendChild(wrap);
 
     // show modal (full-screen style)
@@ -4762,6 +4755,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!firstVisibleTab) firstVisibleTab = tab;
       } else {
         tab.style.display = 'none';
+      }
+    });
+
+    // Hide dashboard cards for tabs the user is not allowed to open
+    document.querySelectorAll('.dashboard-card').forEach(card => {
+      const cardKey = card.getAttribute('data-tab');
+      if (cardKey && !userAllowed.includes(cardKey)) {
+        card.style.display = 'none';
+      } else {
+        card.style.display = '';
       }
     });
 

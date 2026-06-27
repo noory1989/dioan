@@ -304,7 +304,7 @@ body{font-size:18px;font-weight:700}
 .notif-list{max-height:360px;overflow:auto}
 .notif-item{padding:8px;border-bottom:1px solid #eee;display:flex;justify-content:space-between}
 .notif-item .subject{font-weight:600}
-.circle-notifications{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.circle-notifications{display:flex;align-items:center;justify-content:flex-start;gap:12px;margin-bottom:8px}
 
 /* Full-screen search layout */
 .search-full{background:#fff;border-radius:16px;padding:18px;min-height:60vh;box-shadow:0 24px 60px rgba(15,23,42,0.06)}
