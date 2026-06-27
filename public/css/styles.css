@@ -284,7 +284,10 @@ body{font-size:18px;font-weight:700}
   cursor:pointer;
 }
 .circle-name{font-weight:700}
-.circle-badge{background:#e53935;color:#fff;border-radius:16px;padding:6px 10px;font-weight:700}
+.circle-badge{color:#fff;border-radius:16px;padding:6px 10px;font-weight:700}
+.circle-badge.mail{background:#059669}
+.circle-badge.dossier{background:#e53935}
+.circle-badge.zero{background:#9ca3af}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:60}
 .modal.hidden{display:none}
 .modal-window{background:#fff;border-radius:8px;max-width:820px;width:90%;padding:16px}
@@ -523,15 +526,22 @@ body{font-size:18px;font-weight:700}
 #archiveNewView input[type="date"]{height:48px;padding:12px}
 
 /* Numeric inputs small square for compact numeric fields */
-#archiveNewView input[type="number"]{width:88px;padding:8px;border-radius:8px;text-align:center}
+#archiveNewView input[type="number"]{width:100%;padding:12px;border-radius:10px;text-align:left;min-width:0}
 
 /* Text inputs larger and comfortable */
-#archiveNewView input[type="text"]{padding:12px;font-size:15px}
+#archiveNewView input[type="text"],
+#archiveNewView textarea{padding:12px;font-size:15px}
 
-/* Cost input specific styling */
-.cost-input{display:flex;align-items:center;gap:8px}
-.cost-input input{width:120px}
-.cost-unit{display:inline-block;background:#f3f4f6;border:1px solid #e6e9ef;padding:8px 10px;border-radius:8px;font-weight:700}
+.archive-info-section{width:100%;max-width:980px;margin:0 auto;padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:14px}
+.archive-info-row{display:flex;gap:18px;align-items:flex-start;justify-content:center;flex-wrap:wrap;direction:rtl}
+.archive-info-left,
+.archive-info-right{flex:1 1 320px;min-width:240px;display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center}
+
+.archive-status-display{width:220px;max-width:100%;padding:12px;border-radius:10px;border:1px solid #E6E9EF;font-size:15px;height:48px;background:#f7f8fb;color:#334155;text-align:center}
+
+.cost-input{display:flex;align-items:center;gap:8px;width:100%;max-width:460px;margin:0 auto}
+.cost-input input{width:100%;padding:14px;border-radius:12px;border:1px solid #e6e9ef;text-align:left;font-size:16px;min-width:0}
+.cost-unit{display:inline-flex;align-items:center;background:#f3f4f6;border:1px solid #e6e9ef;padding:10px 12px;border-radius:10px;font-weight:700;font-size:15px}
 
 /* Duration lock appearance */
 .duration-locked{background:#f3f4f6 !important;color:#6366f1;border-color:#e6e9ef !important}

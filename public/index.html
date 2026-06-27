@@ -213,7 +213,6 @@
             <div>
               <p class="eyebrow">نظام الأرشفة والتوثيق</p>
               <h2>البريد الوارد</h2>
-              <p class="page-description">واجهة كاملة لتسجيل الكتب الواردة وإدارتها بشكل احترافي مع تفاصيل متكاملة.</p>
             </div>
             <div class="page-actions">
               <button id="resetIncomingBtn" class="btn">مسح الحقول</button>
@@ -592,7 +591,7 @@
                   <!-- New layout: project name centered, date left, status right on same level -->
                   <div class="archive-info-section" style="width:100%">
                     <label for="archiveProjectName" class="archive-project-label">اسم المشروع</label>
-                    <input id="archiveProjectName" class="archive-project-name" type="text" placeholder="اكتب اسم المشروع هنا" required />
+                    <textarea id="archiveProjectName" class="archive-project-name" rows="4" placeholder="اكتب اسم المشروع هنا" required></textarea>
 
                     <div class="archive-info-row">
                       <div class="archive-info-left">
@@ -601,17 +600,11 @@
                       </div>
 
                       <div class="archive-info-right">
-                        <label for="archiveStatus" class="small-label">حالة الأضبارة:</label>
-                        <select id="archiveStatus" class="archive-status-select">
-                          <option value="تم الاستلام">تم الاستلام</option>
-                          <option value="قيد العمل">قيد العمل</option>
-                          <option value="متأخرة">متأخرة</option>
-                          <option value="منتهية">منتهية</option>
-                        </select>
+                        <label for="archiveStatusDisplay" class="small-label">حالة الأضبارة:</label>
+                        <input id="archiveStatusDisplay" class="archive-status-display" type="text" readonly placeholder="سيتم تعيين الحالة تلقائيًا" />
                         <label for="archiveDepartment" class="small-label" style="margin-top:8px;display:block">الدائرة الحالية:</label>
-                        <input id="archiveDepartment" class="archive-status-select" type="text" placeholder="مثال: الدراسات أو ديوان الشؤون الفنية" />
-                        <!-- Keep readonly display field for compatibility with existing JS that may read it -->
-                        <input id="archiveStatusDisplay" type="text" readonly style="margin-top:8px;display:none" />
+                        <input id="archiveDepartment" class="archive-status-input" type="text" placeholder="مثال: الدراسات أو ديوان الشؤون الفنية" />
+                        <input id="archiveStatus" type="hidden" />
                       </div>
                     </div>
                   </div>
@@ -623,7 +616,7 @@
                     <h3 style="margin:0">الدراسات</h3>
                     <label>الكلفة التقديرية (ل.س)</label>
                     <div class="cost-input">
-                      <input id="studies_cost" type="number" step="0.01" style="padding:8px;border-radius:6px;border:1px solid #e6e9ef" />
+                      <input id="studies_cost" type="number" min="0" step="0.01" style="padding:12px;border-radius:10px;border:1px solid #e6e9ef;width:100%;font-size:16px;" placeholder="0" />
                       <span class="cost-unit">ل.س.ج</span>
                     </div>
                     <label>الفريق الدارس</label>
@@ -651,7 +644,6 @@
                           <option value="minutes">دقيقة</option>
                           <option value="hours">ساعة</option>
                           <option value="days" selected>يوم</option>
-                          <option value="weeks">أسبوع</option>
                           <option value="months">شهر</option>
                         </select>
                       </div>
@@ -708,7 +700,6 @@
                           <option value="minutes">دقيقة</option>
                           <option value="hours">ساعة</option>
                           <option value="days" selected>يوم</option>
-                          <option value="weeks">أسبوع</option>
                           <option value="months">شهر</option>
                         </select>
                       </div>
@@ -755,7 +746,6 @@
                           <option value="minutes">دقيقة</option>
                           <option value="hours">ساعة</option>
                           <option value="days" selected>يوم</option>
-                          <option value="weeks">أسبوع</option>
                           <option value="months">شهر</option>
                         </select>
                       </div>
@@ -812,7 +802,6 @@
                           <option value="minutes">دقيقة</option>
                           <option value="hours">ساعة</option>
                           <option value="days" selected>يوم</option>
-                          <option value="weeks">أسبوع</option>
                           <option value="months">شهر</option>
                         </select>
                       </div>
@@ -984,7 +973,7 @@
           </div>
           <div class="card settings-card">
             <h3 class="settings-title danger"><i class="fa-solid fa-triangle-exclamation"></i> منطقة خطرة</h3>
-            <p class="settings-description">هذا الخيار سيقوم بمسح كافة البيانات المخزنة في النظام (الصادر، الوارد، الاستقبال، بريد الدوائر، والسجلات التاريخية) من قاعدة البيانات والمتصفح. يرجى التأكد من أخذ نسخة احتياطية قبل المتابعة.</p>
+            <p class="settings-description">هذا الخيار سيقوم بمسح كافة البيانات المخزنة في النظام (الصادر، الوارد، الاستقبال، بريد الدوائر، والأضابير) من قاعدة البيانات والمتصفح. يرجى التأكد من أخذ نسخة احتياطية قبل المتابعة.</p>
             <div class="settings-actions">
               <button id="clearDbBtn" class="btn settings-btn danger-btn"><i class="fa-solid fa-trash-can"></i> مسح قاعدة البيانات بالكامل</button>
             </div>

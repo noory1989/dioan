@@ -35,8 +35,11 @@ test('formatArchiveDelayDuration converts delay thresholds into larger units', (
   assert.equal(formatArchiveDelayDuration(30), '30 دقيقة');
   assert.equal(formatArchiveDelayDuration(60), '1 ساعة');
   assert.equal(formatArchiveDelayDuration(1440), '1 يوم');
-  assert.equal(formatArchiveDelayDuration(10080), '1 أسبوع');
   assert.equal(formatArchiveDelayDuration(43200), '1 شهر');
+  assert.equal(formatArchiveDelayDuration(90), '1 ساعة و 30 دقيقة');
+  assert.equal(formatArchiveDelayDuration(1500), '1 يوم و 1 ساعة');
+  assert.equal(formatArchiveDelayDuration(2160), '1 يوم و 12 ساعة');
+  assert.equal(formatArchiveDelayDuration(44640), '1 شهر و 1 يوم');
 });
 
 test('resolveArchiveDepartmentForDisplay prefers the current archive department over the first overdue section', () => {

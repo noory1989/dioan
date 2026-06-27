@@ -53,34 +53,21 @@
     if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return '0 دقيقة';
 
     const months = Math.floor(totalMinutes / (30 * 24 * 60));
-    if (months >= 1) {
-      const remainingMinutes = totalMinutes % (30 * 24 * 60);
-      if (remainingMinutes === 0) return '1 شهر';
-      return `${months} شهر`; 
-    }
+    const remainingAfterMonths = totalMinutes % (30 * 24 * 60);
+    const days = Math.floor(remainingAfterMonths / (24 * 60));
+    const remainingAfterDays = remainingAfterMonths % (24 * 60);
+    const hours = Math.floor(remainingAfterDays / 60);
+    const minutes = remainingAfterDays % 60;
 
-    const weeks = Math.floor(totalMinutes / (7 * 24 * 60));
-    if (weeks >= 1) {
-      const remainingMinutes = totalMinutes % (7 * 24 * 60);
-      if (remainingMinutes === 0) return '1 أسبوع';
-      return `${weeks} أسبوع`; 
-    }
+    const parts = [];
+    if (months >= 1) parts.push(`${months} شهر${months === 1 ? '' : ''}`);
+    if (days >= 1) parts.push(`${days} يوم${days === 1 ? '' : ''}`);
+    if (hours >= 1) parts.push(`${hours} ساعة${hours === 1 ? '' : ''}`);
+    if (minutes >= 1) parts.push(`${minutes} دقيقة${minutes === 1 ? '' : ''}`);
 
-    const days = Math.floor(totalMinutes / (24 * 60));
-    if (days >= 1) {
-      const remainingMinutes = totalMinutes % (24 * 60);
-      if (remainingMinutes === 0) return '1 يوم';
-      return `${days} يوم`; 
-    }
-
-    const hours = Math.floor(totalMinutes / 60);
-    if (hours >= 1) {
-      const remainingMinutes = totalMinutes % 60;
-      if (remainingMinutes === 0) return '1 ساعة';
-      return `${hours} ساعة`; 
-    }
-
-    return `${totalMinutes} دقيقة`;
+    if (!parts.length) return '0 دقيقة';
+    if (parts.length === 1) return parts[0];
+    return parts.join(' و ');
   }
 
   function resolveArchiveDepartmentForDisplay(item) {
@@ -125,7 +112,6 @@
     if (unit === 'minutes' || unit === 'minute' || unit === 'دقيقة') return value;
     if (unit === 'hours' || unit === 'hour' || unit === 'ساعة') return value * 60;
     if (unit === 'days' || unit === 'day' || unit === 'يوم') return value * 24 * 60;
-    if (unit === 'weeks' || unit === 'week' || unit === 'أسبوع') return value * 7 * 24 * 60;
     if (unit === 'months' || unit === 'month' || unit === 'شهر') return value * 30 * 24 * 60;
 
     return value;

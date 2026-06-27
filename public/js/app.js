@@ -1163,7 +1163,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (u === 'minutes' || u === 'minute' || u === 'دقيقة') return num;
     if (u === 'hours' || u === 'hour' || u === 'ساعة') return num * 60;
     if (u === 'days' || u === 'day' || u === 'يوم') return num * 24 * 60;
-    if (u === 'weeks' || u === 'week' || u === 'أسبوع') return num * 7 * 24 * 60;
     if (u === 'months' || u === 'month' || u === 'شهر') return num * 30 * 24 * 60;
     return num;
   };
@@ -1478,8 +1477,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       card.className = 'circle-card';
       const mailCount = getNotificationsForCircleByCategory(name, 'MAIL').length;
       const dossierCount = getNotificationsForCircleByCategory(name, 'DOSSIER').length;
-      const mailBadge = `<div class="circle-badge" style="${mailCount === 0 ? 'background-color:#9ca3af;' : ''}">${mailCount}</div>`;
-      const dossierBadge = `<div class="circle-badge" style="background:#059669;margin-left:6px">${dossierCount}</div>`;
+      const mailBadgeClass = mailCount === 0 ? 'circle-badge zero' : 'circle-badge mail';
+      const dossierBadgeClass = dossierCount === 0 ? 'circle-badge zero' : 'circle-badge dossier';
+      const mailBadge = `<div class="${mailBadgeClass}">${mailCount}</div>`;
+      const dossierBadge = `<div class="${dossierBadgeClass}" style="margin-left:6px">${dossierCount}</div>`;
       card.innerHTML = `<div class="circle-name">${name}</div><div style="display:flex;gap:6px;align-items:center">${mailBadge}${dossierBadge}</div>`;
       if (currentUser && currentUser.role !== 'مشرف' && currentUser.role !== name) {
         card.classList.add('disabled');
@@ -4410,16 +4411,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (statusSelectInit) {
-      // default and make it disabled (non-editable)
       if (!statusSelectInit.value || String(statusSelectInit.value).trim() === '') statusSelectInit.value = 'تم الاستلام';
-      statusSelectInit.disabled = true;
       const departmentInputInit = document.getElementById('archiveDepartment');
       const syncStatusDisplay = () => {
         const baseStatus = String(statusSelectInit.value || 'تم الاستلام').trim();
         if (statusDisplayInit) statusDisplayInit.value = buildArchiveStatusValue(baseStatus, departmentInputInit ? departmentInputInit.value : '');
       };
       syncStatusDisplay();
-      statusSelectInit.addEventListener('change', syncStatusDisplay);
       if (departmentInputInit) departmentInputInit.addEventListener('input', syncStatusDisplay);
     }
   } catch (e) { console.warn('Archive info init failed', e); }
