@@ -1813,8 +1813,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     const countEl = document.getElementById('circleNotifCount');
     if (!modal || !title || !bodyList) return;
     title.textContent = name;
-    const matches = getNotificationsForCircle(name);
-    // (diagnostic logs removed)
+    const matches = getNotificationsForCircle(name).slice().sort((a, b) => {
+      const getTimestamp = (item) => {
+        const payload = parseCirclePayload(item);
+        const dateValues = [
+          payload.date,
+          payload.arriveDate,
+          payload.inDate,
+          payload.submissionDate,
+          payload.oldDate,
+          payload.newDate,
+          payload.createdAt,
+          item.createdAt,
+          item.updatedAt,
+        ];
+        for (const val of dateValues) {
+          if (val !== undefined && val !== null && String(val).trim() !== '') {
+            const ts = new Date(val).getTime();
+            if (!Number.isNaN(ts)) return ts;
+          }
+        }
+        return 0;
+      };
+      return getTimestamp(b) - getTimestamp(a);
+    });
     countEl.textContent = matches.length;
     bodyList.innerHTML = '';
     if (!matches.length){
@@ -2695,9 +2717,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const receptionHeaderMap = buildHeaderKeyMap(receptionHeaders);
 
   // Sorting flags for "عرض حسب الأحدث"
-  let sortOutgoingLatest = false;
-  let sortIncomingLatest = false;
-  let sortReceptionLatest = false;
+  let sortOutgoingLatest = true;
+  let sortIncomingLatest = true;
+  let sortReceptionLatest = true;
 
   const parseDateString = (s) => {
     if (!s) return null;
@@ -4166,11 +4188,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   // wire up sort toggles
   const sortOutgoingEl = document.getElementById('sortOutgoingLatest');
-  if (sortOutgoingEl) sortOutgoingEl.addEventListener('change', (e) => { sortOutgoingLatest = !!e.target.checked; render(searchInput.value); });
+  if (sortOutgoingEl) {
+    sortOutgoingEl.checked = sortOutgoingLatest;
+    sortOutgoingEl.addEventListener('change', (e) => { sortOutgoingLatest = !!e.target.checked; render(searchInput.value); });
+  }
   const sortIncomingEl = document.getElementById('sortIncomingLatest');
-  if (sortIncomingEl) sortIncomingEl.addEventListener('change', (e) => { sortIncomingLatest = !!e.target.checked; renderIncoming(searchInputIncoming.value); });
+  if (sortIncomingEl) {
+    sortIncomingEl.checked = sortIncomingLatest;
+    sortIncomingEl.addEventListener('change', (e) => { sortIncomingLatest = !!e.target.checked; renderIncoming(searchInputIncoming.value); });
+  }
   const sortReceptionEl = document.getElementById('sortReceptionLatest');
-  if (sortReceptionEl) sortReceptionEl.addEventListener('change', (e) => { sortReceptionLatest = !!e.target.checked; renderReception(searchInputReception.value); });
+  if (sortReceptionEl) {
+    sortReceptionEl.checked = sortReceptionLatest;
+    sortReceptionEl.addEventListener('change', (e) => { sortReceptionLatest = !!e.target.checked; renderReception(searchInputReception.value); });
+  }
   if (outgoingExportBtn){
     outgoingExportBtn.addEventListener('click', () => exportDataToExcel(items, outgoingHeaders, 'الكتب_الصادرة.xlsx'));
   }
