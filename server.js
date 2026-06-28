@@ -787,6 +787,22 @@ app.post('/api/circlemail/update-by-key', async (req, res) => {
   }
 });
 
+// Generic history creation endpoint for detailed activity logs
+app.post('/api/history', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Database is not initialized' });
+  try {
+    const payload = req.body || {};
+    if (!payload.actor) payload.actor = 'user';
+    const repo = getRepository('History');
+    const record = repo.create(payload);
+    const saved = await repo.save(record);
+    res.json(saved);
+  } catch (err) {
+    console.error('Failed to create history:', err);
+    res.status(500).json({ error: 'Failed to create history' });
+  }
+});
+
 // Create history by composite key (server resolves circleMailId internally)
 app.post('/api/history/by-key', async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Database is not initialized' });
@@ -1031,7 +1047,11 @@ app.get('/api/history/by-key', async (req, res) => {
 app.get('/api/history', async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Database is not initialized' });
   try {
-    const histories = await getRepository('History').find({ order: { createdAt: 'ASC' } });
+    const actor = req.query && req.query.actor ? String(req.query.actor).trim() : '';
+    const histories = await getRepository('History').find({
+      where: actor ? { actor } : undefined,
+      order: { createdAt: 'ASC' }
+    });
     res.json(histories);
   } catch (err) {
     console.error('Failed to fetch histories:', err);

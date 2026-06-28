@@ -624,7 +624,7 @@
 
               <form id="archiveForm" class="card" style="padding:18px;display:grid;gap:18px;">
                 <!-- Section 1: Project basic (معلومات الأضبارة) -->
-                <div class="card" style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+                <div class="card archive-info-card" style="padding:12px;display:flex;flex-direction:column;gap:8px;">
                   <div style="display:flex;justify-content:space-between;align-items:center;">
                     <h3 style="margin:0">معلومات الأضبارة</h3>
                     <div></div>
@@ -632,7 +632,7 @@
                   <!-- New layout: project name centered, date left, status right on same level -->
                   <div class="archive-info-section" style="width:100%">
                     <label for="archiveProjectName" class="archive-project-label">اسم المشروع</label>
-                    <textarea id="archiveProjectName" class="archive-project-name" rows="4" placeholder="اكتب اسم المشروع هنا" required></textarea>
+                    <textarea id="archiveProjectName" class="archive-project-name" rows="1" placeholder="اكتب اسم المشروع هنا" required></textarea>
 
                     <div class="archive-info-row">
                       <div class="archive-info-left">
@@ -1104,6 +1104,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="js/dateImportUtils.js"></script>
     <script src="js/archiveTransferState.js"></script>
     <script src="js/app.js"></script>
     <!-- أزرار التنقل لأعلى وأسفل الصفحة -->

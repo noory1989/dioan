@@ -362,6 +362,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Archive tab elements
   const archiveForm = document.getElementById('archiveForm');
   const archivesBackBtn = document.getElementById('archivesBackBtn');
+  const resizeArchiveProjectNameField = () => {
+    const textarea = document.getElementById('archiveProjectName');
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    const nextHeight = Math.max(textarea.scrollHeight + 4, 140);
+    textarea.style.height = `${nextHeight}px`;
+  };
+  const archiveProjectNameField = document.getElementById('archiveProjectName');
+  if (archiveProjectNameField) {
+    archiveProjectNameField.addEventListener('input', resizeArchiveProjectNameField);
+    archiveProjectNameField.addEventListener('paste', () => requestAnimationFrame(resizeArchiveProjectNameField));
+    window.addEventListener('load', resizeArchiveProjectNameField);
+  }
   const archiveNewCard = document.getElementById('archiveNewCard');
   const archiveLateCard = document.getElementById('archiveLateCard');
   const archiveListCard = document.getElementById('archiveListCard');
@@ -562,9 +575,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   const logoutBtn = document.getElementById('logoutBtn');
 
   let currentUser = null;
+  let pendingDatabaseClear = false;
 
   const getCurrentActor = () => {
     return (currentUser && (currentUser.username || currentUser.name || currentUser.user)) ? (currentUser.username || currentUser.name || currentUser.user) : 'user';
+  };
+
+  const logActivity = async (action, details = {}, extra = {}) => {
+    try {
+      const payload = {
+        action,
+        actor: getCurrentActor(),
+        note: details && typeof details === 'string' ? details : '',
+        ...extra,
+      };
+      if (details && typeof details === 'object' && !Array.isArray(details)) {
+        if (details.note) payload.note = details.note;
+        if (details.fromCircle !== undefined) payload.fromCircle = details.fromCircle;
+        if (details.toCircle !== undefined) payload.toCircle = details.toCircle;
+        if (details.sourceEntity !== undefined) payload.sourceEntity = details.sourceEntity;
+        if (details.sourceId !== undefined) payload.sourceId = details.sourceId;
+        if (details.circleName !== undefined) payload.circleName = details.circleName;
+        if (details.circleMailId !== undefined) payload.circleMailId = details.circleMailId;
+      }
+      await saveToServer('/api/history', payload, 'POST');
+    } catch (err) {
+      console.warn('Activity log failed:', err);
+    }
   };
 
   const attachmentsModal = document.getElementById('attachmentsModal');
@@ -1570,9 +1607,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     let date = '-';
     for (const val of dateValues) {
       if (val !== undefined && val !== null && String(val).trim() !== '') {
-        const parsed = new Date(val);
-        if (!Number.isNaN(parsed.getTime())) {
-          date = parsed.toLocaleDateString('ar-SY');
+        const formatted = window.formatDateForDisplay ? window.formatDateForDisplay(val) : null;
+        if (formatted && formatted !== '-') {
+          date = formatted;
           break;
         }
       }
@@ -2398,6 +2435,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           method: 'POST',
           body: JSON.stringify({ sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, attachments })
         });
+        await logActivity('add_attachment', { note: `إضافة مرفق إلى ${cm.circleName || '-'}`, sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName });
         await loadCircleMails();
         alert('تم رفع المرفقات بنجاح');
       } catch (err) {
@@ -2740,26 +2778,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   let sortIncomingLatest = true;
   let sortReceptionLatest = true;
 
-  const parseDateString = (s) => {
+  const parseDateString = window.parseDateString || ((s) => {
     if (!s) return null;
     if (s instanceof Date) return s;
     const str = String(s).trim();
-    // ISO YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return new Date(str);
-    // try JS Date parse
-    // try dd/mm/yyyy or d/m/yyyy
+    if (!str) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      const [year, month, day] = str.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
     const m = str.match(/^(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})$/);
     if (m) {
       let p1 = parseInt(m[1], 10), p2 = parseInt(m[2], 10), p3 = parseInt(m[3], 10);
-      if (p1 > 1000) return new Date(p1, p2 - 1, p3); // yyyy/mm/dd
-      if (p3 > 1000) return new Date(p3, p2 - 1, p1); // dd/mm/yyyy
+      if (p1 > 1000) return new Date(p1, p2 - 1, p3);
+      if (p3 > 1000) return new Date(p3, p2 - 1, p1);
       const year = p3 < 100 ? 2000 + p3 : p3;
       return new Date(year, p2 - 1, p1);
     }
     const d1 = Date.parse(str);
     if (!Number.isNaN(d1)) return new Date(d1);
     return null;
-  };
+  });
 
   const getItemMainDate = (item) => {
     if (!item) return null;
@@ -2937,6 +2977,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     rows.forEach(it => {
       it._selected = value;
     });
+  };
+
+  const deleteSelectedItems = async (itemsArray, endpointBase, entityLabel) => {
+    const selected = itemsArray.filter(it => it._selected);
+    const selectedCount = selected.length;
+    if (!selectedCount) {
+      alert('لم يتم اختيار أي سجل للحذف.');
+      return itemsArray;
+    }
+    if (!confirm(`هل تريد حذف ${selectedCount} سجل${selectedCount > 1 ? 'اً' : ''} محدد؟`)) {
+      return itemsArray;
+    }
+
+    const failed = [];
+    for (const item of selected) {
+      if (item && item.id) {
+        try {
+          await deleteFromServer(`/api/${endpointBase}/${item.id}`);
+        } catch (error) {
+          console.error(`Bulk delete failed for ${entityLabel}`, error);
+          failed.push(item);
+        }
+      }
+    }
+
+    const remaining = itemsArray.filter(it => !it._selected);
+    if (failed.length) {
+      alert(`تم حذف ${remaining.length} سجل${remaining.length !== 1 ? 'اً' : ''} محلياً، وقد فشل حذف ${failed.length} سجل${failed.length !== 1 ? 'اً' : ''} من الخادم.`);
+    }
+    return remaining;
   };
 
   const exportDataToExcel = (data, headers, filename) => {
@@ -3125,16 +3195,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (cell === null || cell === undefined || String(cell).trim() === '') {
               item[key] = '';
             } else if (key.toLowerCase().includes('date') || key.toLowerCase().includes('submission')) {
-              // Normalize any date string found in a date-related field to YYYY-MM-DD
-              const d = parseDateString(cell);
-              if (d) {
-                const dd = String(d.getDate()).padStart(2, '0');
-                const mm = String(d.getMonth() + 1).padStart(2, '0');
-                const yyyy = d.getFullYear();
-                item[key] = `${yyyy}-${mm}-${dd}`;
-              } else {
-                item[key] = String(cell).trim();
-              }
+              const normalizedDate = window.normalizeImportedDateValue ? window.normalizeImportedDateValue(cell) : null;
+              item[key] = normalizedDate || '';
             } else {
               item[key] = String(cell).trim();
             }
@@ -3631,6 +3693,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!archiveForm) return;
     // map legacy fields if present
     document.getElementById('archiveProjectName').value = item.projectName || item.subject || item.recipient || '';
+    setTimeout(resizeArchiveProjectNameField, 0);
     document.getElementById('archiveCreateDate').value = item.createDate || item.date || getTodayValue();
     const derivedStatusInfo = (window.ArchiveTransferState && typeof window.ArchiveTransferState.deriveArchiveStatusInfo === 'function')
       ? window.ArchiveTransferState.deriveArchiveStatusInfo(item, Date.now())
@@ -3760,6 +3823,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!archiveForm) return;
     archiveForm.reset();
     archiveForm.removeAttribute('data-editing-id');
+    setTimeout(resizeArchiveProjectNameField, 0);
     archiveForm._attachments = {};
     // clear previews
     ['studiesPreview','techPreview','govPreview','legalPreview','gov2Preview'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
@@ -4227,17 +4291,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (outgoingDeleteSelectedBtn){
     outgoingDeleteSelectedBtn.addEventListener('click', async () => {
-      const selected = items.filter(it => it._selected);
-      const selectedCount = selected.length;
-      if (!selectedCount) return alert('لم يتم اختيار أي سجل للحذف.');
-      if (!confirm(`هل تريد حذف ${selectedCount} سجل${selectedCount > 1 ? 'اً' : ''} محدد؟`)) return;
-      try {
-        await Promise.all(selected.map(item => deleteFromServer(`/api/outgoing/${item.id}`)));
-      } catch (error) {
-        console.error('Bulk outgoing delete failed', error);
-        alert('تعذر حذف السجلات من الخادم.');
-      }
-      items = items.filter(it => !it._selected);
+      items = await deleteSelectedItems(items, 'outgoing', 'الكتب الصادرة');
       render(searchInput.value);
     });
   }
@@ -4285,17 +4339,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (incomingDeleteSelectedBtn){
     incomingDeleteSelectedBtn.addEventListener('click', async () => {
-      const selected = itemsIncoming.filter(it => it._selected);
-      const selectedCount = selected.length;
-      if (!selectedCount) return alert('لم يتم اختيار أي سجل للحذف.');
-      if (!confirm(`هل تريد حذف ${selectedCount} سجل${selectedCount > 1 ? 'اً' : ''} محدد؟`)) return;
-      try {
-        await Promise.all(selected.map(item => deleteFromServer(`/api/incoming/${item.id}`)));
-      } catch (error) {
-        console.error('Bulk incoming delete failed', error);
-        alert('تعذر حذف السجلات من الخادم.');
-      }
-      itemsIncoming = itemsIncoming.filter(it => !it._selected);
+      itemsIncoming = await deleteSelectedItems(itemsIncoming, 'incoming', 'الكتب الواردة');
       renderIncoming(searchInputIncoming.value);
     });
   }
@@ -4351,17 +4395,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (receptionDeleteSelectedBtn){
     receptionDeleteSelectedBtn.addEventListener('click', async () => {
-      const selected = itemsReception.filter(it => it._selected);
-      const selectedCount = selected.length;
-      if (!selectedCount) return alert('لم يتم اختيار أي سجل للحذف.');
-      if (!confirm(`هل تريد حذف ${selectedCount} سجل${selectedCount > 1 ? 'اً' : ''} محدد؟`)) return;
-      try {
-        await Promise.all(selected.map(item => deleteFromServer(`/api/reception/${item.id}`)));
-      } catch (error) {
-        console.error('Bulk reception delete failed', error);
-        alert('تعذر حذف السجلات من الخادم.');
-      }
-      itemsReception = itemsReception.filter(it => !it._selected);
+      itemsReception = await deleteSelectedItems(itemsReception, 'reception', 'الاستقبال والشكاوى');
       renderReception(searchInputReception.value);
     });
   }
@@ -4576,8 +4610,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const normalized = { ...saved, attachments: parseAttachments(saved.attachments) };
         if (editingId) {
           items = items.map(it => it.id === normalized.id ? normalized : it);
+          await logActivity('edit_outgoing', { note: `تعديل سجل صادر: ${normalized.subject || normalized.serial || normalized.id}`, sourceEntity: 'outgoing', sourceId: normalized.id });
         } else {
           items.unshift(normalized);
+          await logActivity('add_outgoing', { note: `إضافة سجل صادر: ${normalized.subject || normalized.serial || normalized.id}`, sourceEntity: 'outgoing', sourceId: normalized.id });
         }
         saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, items);
         render(searchInput.value);
@@ -4625,8 +4661,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const normalized = { ...saved, attachments: parseAttachments(saved.attachments) };
       if (editingId) {
         itemsIncoming = itemsIncoming.map(it => it.id === normalized.id ? normalized : it);
+        await logActivity('edit_incoming', { note: `تعديل سجل وارد: ${normalized.subject || normalized.inNo || normalized.id}`, sourceEntity: 'incoming', sourceId: normalized.id });
       } else {
         itemsIncoming.unshift(normalized);
+        await logActivity('add_incoming', { note: `إضافة سجل وارد: ${normalized.subject || normalized.inNo || normalized.id}`, sourceEntity: 'incoming', sourceId: normalized.id });
       }
       saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, itemsIncoming);
       renderIncoming(searchInputIncoming.value);
@@ -4679,8 +4717,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const normalized = { ...saved, attachments: parseAttachments(saved.attachments) };
       if (editingId) {
         itemsReception = itemsReception.map(it => it.id === normalized.id ? normalized : it);
+        await logActivity('edit_reception', { note: `تعديل سجل استقبال: ${normalized.subject || normalized.requestNo || normalized.id}`, sourceEntity: 'reception', sourceId: normalized.id });
       } else {
         itemsReception.unshift(normalized);
+        await logActivity('add_reception', { note: `إضافة سجل استقبال: ${normalized.subject || normalized.requestNo || normalized.id}`, sourceEntity: 'reception', sourceId: normalized.id });
       }
       saveLocalBackup(LOCAL_STORAGE_KEYS.reception, itemsReception);
       renderReception(searchInputReception.value);
@@ -4861,39 +4901,52 @@ document.addEventListener('DOMContentLoaded', async () => {
   searchInputIncoming.addEventListener('input', () => { currentPageIncoming = 1; renderIncoming(searchInputIncoming.value); });
   searchInputReception.addEventListener('input', () => { currentPageReception = 1; renderReception(searchInputReception.value); });
 
+  const clearDatabaseAndResetState = async () => {
+    try {
+      await fetchJson(`${API_BASE}/system/clear-database`, { method: 'POST' });
+
+      items = [];
+      itemsIncoming = [];
+      itemsReception = [];
+      itemsCircleMail = [];
+      histories = [];
+      itemsArchive = [];
+
+      saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, []);
+      saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, []);
+      saveLocalBackup(LOCAL_STORAGE_KEYS.reception, []);
+      saveLocalBackup(LOCAL_STORAGE_KEYS.archive, []);
+
+      render(); renderIncoming(); renderReception(); renderArchive(); renderCircles(); renderTrash();
+      updateDashboardStats();
+
+      alert('تم مسح كافة البيانات بنجاح من الخادم والمتصفح.');
+    } catch (err) {
+      console.error('Database clearing failed:', err);
+      alert('حدث خطأ أثناء محاولة مسح البيانات: ' + err.message);
+    }
+  };
+
   // منطق مسح قاعدة البيانات الشامل
   if (clearDbBtn) {
     clearDbBtn.addEventListener('click', async () => {
       const isConfirmed = confirm('تحذير: هل أنت متأكد من رغبتك في مسح كافة بيانات النظام؟ (الصادر، الوارد، الاستقبال، بريد الدوائر، والسجلات). لا يمكن التراجع عن هذا الإجراء.');
       if (!isConfirmed) return;
 
-      try {
-        // إرسال طلب للسيرفر لمسح الجداول
-        await fetchJson(`${API_BASE}/system/clear-database`, { method: 'POST' });
+      const reauthConfirmed = confirm('لأمانك، ستحتاج إلى تسجيل الدخول مرة أخرى قبل تنفيذ عملية المسح. هل تريد المتابعة؟');
+      if (!reauthConfirmed) return;
 
-        // تصفير البيانات محلياً في الذاكرة
-        items = [];
-        itemsIncoming = [];
-        itemsReception = [];
-        itemsCircleMail = [];
-        histories = [];
-        itemsArchive = [];
+      pendingDatabaseClear = true;
+      sessionStorage.removeItem('diwan_user');
+      currentUser = null;
 
-        // مسح النسخ الاحتياطية في localStorage
-        saveLocalBackup(LOCAL_STORAGE_KEYS.outgoing, []);
-        saveLocalBackup(LOCAL_STORAGE_KEYS.incoming, []);
-        saveLocalBackup(LOCAL_STORAGE_KEYS.reception, []);
-        saveLocalBackup(LOCAL_STORAGE_KEYS.archive, []);
+      if (userInfoEl) userInfoEl.style.display = 'none';
+      if (loggedInUserEl) loggedInUserEl.textContent = '';
+      if (loginModal) loginModal.classList.remove('hidden');
+      const mainEl = document.querySelector('main'); if (mainEl) mainEl.style.display = 'none';
+      const headerEl = document.querySelector('header'); if (headerEl) headerEl.style.display = 'none';
 
-        // تحديث جميع الجداول والإحصائيات في الواجهة
-        render(); renderIncoming(); renderReception(); renderCircles();
-        updateDashboardStats();
-
-        alert('تم مسح كافة البيانات بنجاح من الخادم والمتصفح.');
-      } catch (err) {
-        console.error('Database clearing failed:', err);
-        alert('حدث خطأ أثناء محاولة مسح البيانات: ' + err.message);
-      }
+      alert('يرجى تسجيل الدخول مرة أخرى للمتابعة، وسيتم تنفيذ عملية مسح قاعدة البيانات فور نجاح المصادقة.');
     });
   }
 
@@ -5211,6 +5264,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       currentUser = { ...user, role: normalizeRoleForUser(user) || user.role };
       sessionStorage.setItem('diwan_user', JSON.stringify(currentUser));
+      await logActivity('login', { note: `تسجيل دخول المستخدم ${user.username}` });
       loginModal.classList.add('hidden');
       document.querySelector('main').style.display = '';
       document.querySelector('header').style.display = '';
@@ -5218,7 +5272,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (userInfoEl) userInfoEl.style.display = 'flex';
       if (loggedInUserEl) loggedInUserEl.textContent = `أهلاً، ${user.username}`;
 
-      
+      const shouldClearDatabaseAfterLogin = pendingDatabaseClear;
+      pendingDatabaseClear = false;
+      if (shouldClearDatabaseAfterLogin) {
+        await clearDatabaseAndResetState();
+      }
+
       // Load all data first
       await Promise.all([
         load(),
@@ -5272,11 +5331,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (match) {
         // Use local user as fallback
         currentUser = { username: match.username, role: normalizeRoleForUser(match) || match.role };
+        await logActivity('login', { note: `تسجيل دخول تجريبي للمستخدم ${match.username}` });
       } else {
         // If server said credentials wrong but user still wants to proceed, create a trial local user
         if (isAuthErrorFromServer || isNetworkOrServerError) {
           // create a temporary local session with the provided username
           currentUser = { username: username || 'local-user', role: 'مستخدم (تجريبي)' };
+          await logActivity('login', { note: `تسجيل دخول تجريبي للمستخدم ${currentUser.username}` });
           alert('تم تسجيل دخول تجريبي محلياً باسم: ' + currentUser.username + ' (لا يعتمد على الخادم)');
         } else {
           alert('فشل تسجيل الدخول: اسم المستخدم أو كلمة المرور غير صحيحة (الخادم غير متوفر ومطابقة محلية فشلت)');
@@ -5349,9 +5410,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     activityLogModal.classList.remove('hidden');
 
     try {
-      // Fetch all history entries made by this user
-      const userHistories = await fetchJson(`${API_BASE}/history?actor=${encodeURIComponent(user.username)}`);
-      
+      // Fetch history entries made by this user and filter defensively in case the server returns more data.
+      const userHistoriesRaw = await fetchJson(`${API_BASE}/history?actor=${encodeURIComponent(user.username)}`);
+      const userHistories = Array.isArray(userHistoriesRaw)
+        ? userHistoriesRaw.filter(h => String(h.actor || '') === String(user.username))
+        : [];
+
       if (!userHistories.length) {
         activityLogBody.innerHTML = '<div class="search-no-results">لا توجد نشاطات مسجلة لهذا المستخدم.</div>';
         return;
@@ -5389,8 +5453,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
+    logoutBtn.addEventListener('click', async () => {
       if (confirm('هل أنت متأكد من رغبتك في تسجيل الخروج؟')) {
+        try { await logActivity('logout', { note: `تسجيل خروج المستخدم ${getCurrentActor()}` }); } catch (e) {}
         sessionStorage.removeItem('diwan_user');
         window.location.reload();
       }
