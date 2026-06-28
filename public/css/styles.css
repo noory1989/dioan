@@ -217,7 +217,13 @@ body{font-size:18px;font-weight:700}
 .data-table th.row-select,
 .data-table td.row-select{width:52px;text-align:center;min-width:52px}
 .data-table td.row-select input{transform:scale(1.05)}
-.data-table td.truncate-cell{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.data-table td.truncate-cell{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:help}
+.table-cell-tooltip{position:fixed;z-index:2000;display:none;background:#0f172a;color:#fff;padding:10px 12px;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,0.24);font-size:14px;line-height:1.6;pointer-events:none;white-space:pre-wrap;max-width:380px}
+.text-detail-modal{position:fixed;inset:0;background:rgba(15,23,42,0.6);display:none;align-items:center;justify-content:center;z-index:3000;padding:20px}
+.text-detail-modal-card{width:min(720px,100%);max-height:80vh;overflow:auto;background:#fff;border-radius:16px;box-shadow:0 20px 50px rgba(15,23,42,0.25);padding:18px}
+.text-detail-modal-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+.text-detail-modal-close{border:none;background:#e2e8f0;color:#0f172a;border-radius:999px;width:34px;height:34px;cursor:pointer;font-size:20px;line-height:1}
+.text-detail-modal-body{white-space:pre-wrap;line-height:1.8;color:#0f172a}
 .data-table tbody tr:hover{background:linear-gradient(90deg,rgba(59,130,246,0.06),rgba(37,99,235,0.04))}
 .data-table tbody tr.selected{background:rgba(59,130,246,0.14)}
 .data-table td.actions{display:flex;gap:8px;justify-content:flex-end;white-space:nowrap;min-width:280px}

@@ -116,6 +116,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   tableCellTooltip.className = 'table-cell-tooltip';
   document.body.appendChild(tableCellTooltip);
 
+  const createTextDetailModal = () => {
+    let modal = document.getElementById('textDetailModal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'textDetailModal';
+    modal.className = 'text-detail-modal';
+    modal.innerHTML = `
+      <div class="text-detail-modal-card">
+        <div class="text-detail-modal-header">
+          <h3 data-role="title">تفاصيل النص</h3>
+          <button type="button" class="text-detail-modal-close" data-role="close" aria-label="إغلاق">×</button>
+        </div>
+        <div class="text-detail-modal-body" data-role="body"></div>
+      </div>
+    `;
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal || e.target.getAttribute('data-role') === 'close') {
+        modal.style.display = 'none';
+      }
+    });
+    document.body.appendChild(modal);
+    return modal;
+  };
+
+  const showTextDetailModal = (title, text) => {
+    const modal = createTextDetailModal();
+    const titleEl = modal.querySelector('[data-role="title"]');
+    const bodyEl = modal.querySelector('[data-role="body"]');
+    if (titleEl) titleEl.textContent = title || 'تفاصيل النص';
+    if (bodyEl) bodyEl.textContent = text || '-';
+    modal.style.display = 'flex';
+  };
+
   const showTableCellTooltip = (cell) => {
     const text = cell.dataset.tooltip;
     if (!text) return;
@@ -135,16 +168,70 @@ document.addEventListener('DOMContentLoaded', async () => {
     tableCellTooltip.style.display = 'none';
   };
 
+  const truncateTextPreview = (text, maxWords = 8) => {
+    const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '-';
+    const words = normalized.split(' ');
+    if (words.length <= maxWords) return normalized;
+    return `${words.slice(0, maxWords).join(' ')}…`;
+  };
+
+  const applyTextPreview = (cell, text, { maxWords = 8, forceWrap = false } = {}) => {
+    const rawText = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (!rawText || rawText === '-') {
+      cell.textContent = '-';
+      cell.dataset.tooltip = '';
+      cell.classList.remove('truncate-cell');
+      return;
+    }
+    const words = rawText.split(' ');
+    // preview when many words, or long overall length, or a long unbroken token (no spaces)
+    const maxChars = 80;
+    const longTokenRegex = /\S{24,}/;
+    const shouldPreview = words.length > maxWords || rawText.length > maxChars || longTokenRegex.test(rawText);
+    const previewText = shouldPreview ? truncateTextPreview(rawText, maxWords) : rawText;
+    cell.textContent = previewText;
+    if (shouldPreview) {
+      cell.dataset.tooltip = rawText;
+      cell.style.cursor = 'pointer';
+      cell.removeAttribute('title');
+      if (forceWrap) {
+        // show a short preview but allow wrapping (multi-line) inside modals
+        cell.classList.remove('truncate-cell');
+        cell.style.whiteSpace = 'normal';
+      } else {
+        cell.classList.add('truncate-cell');
+        cell.style.whiteSpace = '';
+      }
+      if (cell.dataset.tooltipBound !== 'true') {
+        cell.addEventListener('mouseenter', () => showTableCellTooltip(cell));
+        cell.addEventListener('mouseleave', hideTableCellTooltip);
+        cell.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showTextDetailModal('المحتوى الكامل', rawText);
+        });
+        cell.dataset.tooltipBound = 'true';
+      }
+    } else {
+      cell.classList.remove('truncate-cell');
+      cell.dataset.tooltip = '';
+      cell.style.cursor = '';
+      cell.style.whiteSpace = '';
+    }
+  };
+
   const annotateTooltipCells = (row) => {
     Array.from(row.querySelectorAll('td:not(.actions):not(.row-select)')).forEach(td => {
       const text = (td.textContent || '').trim();
       if (!text || text === '-') return;
-      if (text.length < 40 && !text.includes('\n')) return;
-      td.classList.add('truncate-cell');
-      td.dataset.tooltip = text;
-      td.removeAttribute('title');
-      td.addEventListener('mouseenter', () => showTableCellTooltip(td));
-      td.addEventListener('mouseleave', hideTableCellTooltip);
+      const normalizedText = text.replace(/\s+/g, ' ').trim();
+      if (normalizedText.length < 40 && !normalizedText.includes('\n')) {
+        td.dataset.tooltip = normalizedText;
+        td.classList.remove('truncate-cell');
+        td.textContent = normalizedText;
+        return;
+      }
+      applyTextPreview(td, normalizedText, { maxWords: 10 });
     });
   };
   const goBack = () => {
@@ -2051,7 +2138,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // add columns in order according to the chosen layout
         if (!useArchiveLayout) {
           const rowValues = getCircleMailListRowValues(cm);
-          const subjectTd = document.createElement('td'); subjectTd.textContent = rowValues.subject; tr.appendChild(subjectTd);
+          const subjectTd = document.createElement('td');
+          applyTextPreview(subjectTd, rowValues.subject, { maxWords: 8 });
+          tr.appendChild(subjectTd);
           const typeTd = document.createElement('td'); typeTd.textContent = rowValues.type; tr.appendChild(typeTd);
           const dateTd = document.createElement('td'); dateTd.textContent = rowValues.date; tr.appendChild(dateTd);
           const attTd = document.createElement('td'); attTd.textContent = rowValues.attachments.length ? rowValues.attachments.map(a => a.name || a).join(', ') : '-'; tr.appendChild(attTd);
@@ -2125,7 +2214,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.alignItems = 'center';
     const entityInfo = getEntityInfo(cm.sourceEntity);
-    const hleft = document.createElement('div'); hleft.innerHTML = `<h2 style="margin:0">${payload.subject || payload.name || 'سجل'}</h2><div style="color:#64748b">من المصدر: ${entityInfo.display || '-'} ${cm.sourceId ? '#'+cm.sourceId : ''}</div>`;
+    const hleft = document.createElement('div');
+    const titleEl = document.createElement('h2'); titleEl.style.margin = '0';
+    applyTextPreview(titleEl, payload.subject || payload.name || 'سجل', { maxWords: 10, forceWrap: true });
+    const sourceInfo = document.createElement('div'); sourceInfo.style.color = '#64748b'; sourceInfo.textContent = `من المصدر: ${entityInfo.display || '-'} ${cm.sourceId ? '#'+cm.sourceId : ''}`;
+    hleft.appendChild(titleEl); hleft.appendChild(sourceInfo);
     const createdAtText = payload.createdAt ? (new Date(payload.createdAt)).toLocaleString() : (cm.createdAt ? (new Date(cm.createdAt)).toLocaleString() : '-');
     const hright = document.createElement('div'); hright.style.textAlign = 'left'; hright.innerHTML = `<div>الحالة: <strong>${cm.status || 'open'}</strong></div><div>مُستلم عند: <strong>${createdAtText}</strong></div>`;
     header.appendChild(hleft); header.appendChild(hright);
@@ -2147,9 +2240,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const card = document.createElement('div'); card.style.background = '#fbfdff'; card.style.padding = '10px'; card.style.borderRadius = '8px';
         const key = document.createElement('div'); key.style.fontWeight = '700'; key.textContent = (outgoingHeaders[k] || incomingHeaders[k] || receptionHeaders[k] || k);
         const val = document.createElement('div');
-        if (Array.isArray(v)) val.textContent = v.join(', ');
-        else if (typeof v === 'object' && v !== null) val.textContent = JSON.stringify(v);
-        else val.textContent = v || '-';
+        let displayText = '-';
+        if (Array.isArray(v)) displayText = v.join(', ');
+        else if (typeof v === 'object' && v !== null) displayText = JSON.stringify(v);
+        else displayText = v || '-';
+        applyTextPreview(val, displayText, { maxWords: 8, forceWrap: true });
         card.appendChild(key); card.appendChild(val); details.appendChild(card);
         shown.add(k);
       }
@@ -2162,9 +2257,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const labelText = (outgoingHeaders[k] || incomingHeaders[k] || receptionHeaders[k] || k);
       const key = document.createElement('div'); key.style.fontWeight = '700'; key.textContent = labelText;
       const val = document.createElement('div');
-      if (Array.isArray(v)) val.textContent = v.join(', ');
-      else if (typeof v === 'object' && v !== null) val.textContent = JSON.stringify(v);
-      else val.textContent = v || '-';
+      let displayText = '-';
+      if (Array.isArray(v)) displayText = v.join(', ');
+      else if (typeof v === 'object' && v !== null) displayText = JSON.stringify(v);
+      else displayText = v || '-';
+      applyTextPreview(val, displayText, { maxWords: 8, forceWrap: true });
       card.appendChild(key); card.appendChild(val); details.appendChild(card);
     });
     wrap.appendChild(details);
@@ -2278,9 +2375,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const label = document.createElement('div'); label.style.fontWeight='700'; label.textContent = (entityInfo.headers && entityInfo.headers[k]) ? entityInfo.headers[k] : k;
       const val = document.createElement('div');
       const v = payload && payload.hasOwnProperty(k) ? payload[k] : '';
-      if (Array.isArray(v)) val.textContent = v.join(', ');
-      else if (typeof v === 'object' && v !== null) val.textContent = JSON.stringify(v);
-      else val.textContent = v || '-';
+      let displayText = '-';
+      if (Array.isArray(v)) displayText = v.join(', ');
+      else if (typeof v === 'object' && v !== null) displayText = JSON.stringify(v);
+      else displayText = v || '-';
+      applyTextPreview(val, displayText, { maxWords: 8, forceWrap: true });
       wrap.appendChild(label); wrap.appendChild(val); left.appendChild(wrap);
     });
 
