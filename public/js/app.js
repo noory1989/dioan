@@ -563,6 +563,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let currentUser = null;
 
+  const getCurrentActor = () => {
+    return (currentUser && (currentUser.username || currentUser.name || currentUser.user)) ? (currentUser.username || currentUser.name || currentUser.user) : 'user';
+  };
+
   const attachmentsModal = document.getElementById('attachmentsModal');
   const attachmentsModalBody = document.getElementById('attachmentsModalBody');
   const closeAttachmentsModal = document.getElementById('closeAttachmentsModal');
@@ -2064,7 +2068,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // update by composite key
         await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: newStatus } });
         // record history by key
-        await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: newStatus === 'finished' ? 'finished' : 'reopened', actor: 'user' });
+        await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: newStatus === 'finished' ? 'finished' : 'reopened', actor: getCurrentActor() });
         await loadCircleMails();
         openCircleModal(cm.circleName);
         alert('تم تحديث حالة المعاملة.');
@@ -2126,7 +2130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const q = `?sourceEntity=${encodeURIComponent(cm.sourceEntity||'')}&sourceId=${encodeURIComponent(cm.sourceId||'')}${cm.circleName ? `&circleName=${encodeURIComponent(cm.circleName)}` : ''}`;
       const entries = await fetchJson(`${API_BASE}/history/by-key${q}`);
       if (Array.isArray(entries) && entries.length) {
-        lastNote = entries.slice().filter(h => h && (h.action === 'note' || h.action === 'note_added')).sort((a,b)=> new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] || null;
+        lastNote = entries.slice().filter(h => h && (h.action === 'note' || h.action === 'note_added' || (h.action === 'transferred' && h.note))).sort((a,b)=> new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] || null;
       }
     } catch (e) { /* ignore */ }
     const noteEl = document.createElement('div'); noteEl.style.background='#fff7ed'; noteEl.style.padding='12px'; noteEl.style.borderRadius='8px'; noteEl.style.marginBottom='8px';
@@ -2181,7 +2185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const rollbackBtn = document.createElement('button'); rollbackBtn.className='btn'; rollbackBtn.textContent='تراجع عن التحويل';
     rollbackBtn.addEventListener('click', async () => {
       if (!confirm('تأكيد التراجع عن التحويل للسجل؟')) return;
-      try { await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: 'revert_transfer', actor: 'user' }); alert('تم تسجيل التراجع'); await loadHistories(); } catch (e) { console.error(e); alert('فشل التراجع'); }
+      try { await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: 'revert_transfer', actor: getCurrentActor() }); alert('تم تسجيل التراجع'); await loadHistories(); } catch (e) { console.error(e); alert('فشل التراجع'); }
     });
     const timelineBtn = document.createElement('button'); timelineBtn.className='btn'; timelineBtn.textContent='عرض سير المعاملة'; timelineBtn.addEventListener('click', () => showTimelineByKey(cm));
     const canManageCircleMailDetails = canManageSensitiveActions();
@@ -2191,7 +2195,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     finishBtn.addEventListener('click', async () => {
       if (!canManageCircleMailDetails) return;
       if (!confirm('تأكيد تغيير حالة المعاملة؟')) return;
-      try { const newStatus = cm.status==='finished' ? 'open' : 'finished'; await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: newStatus } }); await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: newStatus==='finished' ? 'finished' : 'reopened', actor: 'user' }); alert('تم تحديث الحالة'); await loadCircleMails(); } catch (e) { console.error(e); alert('فشل'); }
+      try { const newStatus = cm.status==='finished' ? 'open' : 'finished'; await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: newStatus } }); await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: newStatus==='finished' ? 'finished' : 'reopened', actor: getCurrentActor() }); alert('تم تحديث الحالة'); await loadCircleMails(); } catch (e) { console.error(e); alert('فشل'); }
     });
     // explicit 'تراجع عن الانهاء' button (visible only when status is finished)
     if (cm.status === 'finished') {
@@ -2203,7 +2207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!confirm('تأكيد تراجع عن الإنهاء؟')) return;
         try {
           await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: 'open' } });
-          await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: 'reopened', actor: 'user' });
+          await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: 'reopened', actor: getCurrentActor() });
           await loadCircleMails();
           alert('تم التراجع عن الإنهاء');
         } catch (e) { console.error(e); alert('فشل التراجع'); }
@@ -2332,15 +2336,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // 2. Mapping Actions
-    const actionLabels = { transferred: 'تحويل خارجي', finished: 'إنهاء المعاملة', reopened: 'إعادة فتح', note: 'إضافة ملاحظة', delayed_alert: 'تنبيه تأخير', revert_transfer: 'تراجع عن التحويل' };
+    const actionLabels = { transferred: 'تحويل خارجي', finished: 'إنهاء المعاملة', reopened: 'إعادة فتح', note: 'إضافة ملاحظة', note_added: 'إضافة ملاحظة', delayed_alert: 'تنبيه تأخير', revert_transfer: 'تراجع عن التحويل' };
 
     histories.forEach(h => {
       const item = document.createElement('div');
       item.className = 'timeline-item';
       const timeStr = new Date(h.createdAt).toLocaleString('ar-SY');
       const actionLabel = actionLabels[h.action] || h.action;
+      const sourceInfo = getEntityInfo(h.sourceEntity || '');
+      const fromLabel = h.fromCircle || (sourceInfo.display && sourceInfo.display !== '-' ? sourceInfo.display : null) || 'الأرشيف';
+      const toLabel = h.circleName || h.toCircle || '-';
       let title = (h.action === 'transferred') 
-        ? `تحويل من [${h.fromCircle || 'الأرشيف'}] إلى [${h.circleName || h.toCircle || '-'}]` 
+        ? `تحويل من [${fromLabel}] إلى [${toLabel}]` 
         : `${actionLabel} في ${h.circleName || '-'}`;
 
       item.innerHTML = `
@@ -2359,7 +2366,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openAddNote = (cm) => {
     const note = prompt('أدخل ملاحظة إضافية:');
     if (note === null) return;
-    saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: 'note', note, actor: 'user' })
+    saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: 'note', note, actor: getCurrentActor() })
       .then(() => { loadHistories(); alert('تم إضافة الملاحظة'); })
       .catch(err => { console.error(err); alert('خطأ عند إضافة الملاحظة'); });
   };
@@ -2598,17 +2605,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         const archiveSpecial = (inferredCategory === 'DOSSIER' && specialCircles.has(circleName));
         if (archiveSpecial) {
           try {
-            await saveToServer('/api/history/by-key', { sourceEntity: 'archive', sourceId: payload.sourceId, circleName, action: 'transferred', note, actor: 'user' });
+            await saveToServer('/api/history/by-key', { sourceEntity: 'archive', sourceId: payload.sourceId, circleName, action: 'transferred', note, actor: getCurrentActor() });
             console.debug('Saved DOSSIER transfer history for', payload.sourceId, '->', circleName);
           } catch (e) {
             console.warn('DOSSIER history fallback failed, storing locally', e);
             try {
               histories = histories || [];
-              histories.push({ id: Date.now(), sourceEntity: 'archive', sourceId: payload.sourceId, circleName, action: 'transferred', note, actor: 'user', createdAt: new Date().toISOString(), local: true });
+              histories.push({ id: Date.now(), sourceEntity: 'archive', sourceId: payload.sourceId, circleName, action: 'transferred', note, actor: getCurrentActor(), createdAt: new Date().toISOString(), local: true });
             } catch (er) { console.warn('Failed to store local history fallback', er); }
           }
-          // record separate note entry if provided
-          try { if (note && String(note).trim()) await saveToServer('/api/history/by-key', { sourceEntity: 'archive', sourceId: payload.sourceId, circleName, action: 'note_added', note, actor: 'user' }); } catch (e) {}
         }
         console.debug('إرسال /api/circlemail، الحمولة:', payload);
           // try with a couple retries on network failure
@@ -2654,7 +2659,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
           // record history — prefer attaching directly to created circleMailId so note is never lost
           // include source identifying keys so history/by-key can resolve when needed
-          const historyPayload = { action: 'transferred', fromCircle: _transferContext.fromCircle || null, toCircle: circleName, note, actor: 'user' };
+          const historyPayload = { action: 'transferred', fromCircle: _transferContext.fromCircle || null, toCircle: circleName, note, actor: getCurrentActor() };
           if (created && created.id) {
             historyPayload.circleMailId = created.id;
             // also attach source info for consistency
@@ -2665,23 +2670,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             historyPayload.sourceEntity = payload.sourceEntity; historyPayload.sourceId = payload.sourceId; historyPayload.circleName = circleName;
           }
           const createdHistory = await saveToServer('/api/history/by-key', historyPayload);
-          // if the transfer included a free-text note, also create a dedicated 'note' entry
-          // so it appears in the top-note area which only looks for action === 'note'|'note_added'
-          try {
-            if (note && String(note).trim() && createdHistory) {
-              const notePayload = {
-                action: 'note_added',
-                note: note,
-                actor: 'user',
-                sourceEntity: historyPayload.sourceEntity,
-                sourceId: historyPayload.sourceId,
-                circleName: historyPayload.circleName,
-                circleMailId: createdHistory.circleMailId || createdHistory.id || historyPayload.circleMailId,
-              };
-              await saveToServer('/api/history/by-key', notePayload);
-              console.log('Saved separate note history entry for transfer.');
-            }
-          } catch (e) { console.warn('Failed to save transfer note as separate history entry', e); }
+          // transfer note is included with the transfer history entry itself, do not create a separate note item
       }
       await loadCircleMails();
       await loadHistories();
@@ -2783,7 +2772,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const key = String(entityName).toLowerCase();
     if (key.includes('outg') || key === 'outgoing') return { key: 'outgoing', display: 'البريد الصادر', headers: outgoingHeaders };
     if (key.includes('incom') || key === 'incoming') return { key: 'incoming', display: 'البريد الوارد', headers: incomingHeaders };
-    if (key.includes('recept') || key === 'reception') return { key: 'reception', display: 'الاستقبال', headers: receptionHeaders };
+    if (key.includes('recept') || key === 'reception') return { key: 'reception', display: 'الاستقبال والشكاوى', headers: receptionHeaders };
+    if (key.includes('archive') || key === 'archive') return { key: 'archive', display: 'الأرشيف', headers: {} };
     return { key, display: entityName, headers: {} };
   };
 
@@ -3316,7 +3306,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderTrash();
         });
       }
-      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'outgoing', null, it.id));
+      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'outgoing', 'البريد الصادر', it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateForm(it);
       });
@@ -3410,7 +3400,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderTrash();
         });
       }
-      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'incoming', null, it.id));
+      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'incoming', 'البريد الوارد', it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateIncomingForm(it);
       });
@@ -3511,7 +3501,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderTrash();
         });
       }
-      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'reception', null, it.id));
+      tr.querySelector('[data-action="transfer"]').addEventListener('click', () => showTransferModal(it, 'reception', 'الاستقبال والشكاوى', it.id));
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateReceptionForm(it);
       });
