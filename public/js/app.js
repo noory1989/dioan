@@ -940,7 +940,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   const preparePayloadForSave = (payload) => {
+    if (!payload || typeof payload !== 'object') return payload;
     const data = { ...payload };
+    const isUserPayload = Object.prototype.hasOwnProperty.call(data, 'username')
+      || Object.prototype.hasOwnProperty.call(data, 'role')
+      || Object.prototype.hasOwnProperty.call(data, 'password');
+    if (isUserPayload) return data;
     if (Array.isArray(data.attachments)) {
       data.attachments = JSON.stringify(data.attachments);
     } else if (!data.attachments) {
@@ -952,7 +957,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const saveToServer = async (endpoint, payload, method = 'POST') => {
     // Prevent modifications to finished circle mails.
     try {
-      const safePayload = preparePayloadForSave(payload);
+      const safePayload = endpoint && endpoint.includes('/api/users')
+        ? payload
+        : preparePayloadForSave(payload);
       // helper to find matching circle mail
       const findCircleMail = (p) => {
         try {

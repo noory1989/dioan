@@ -1238,11 +1238,18 @@ app.put('/api/users/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     const payload = { ...req.body };
-    if (payload.password) {
+    const allowedFields = ['username', 'password', 'role'];
+    const sanitizedPayload = Object.fromEntries(
+      Object.entries(payload).filter(([key]) => allowedFields.includes(key))
+    );
+    if (sanitizedPayload.password) {
       const salt = await bcrypt.genSalt(10);
-      payload.password = await bcrypt.hash(payload.password, salt);
+      sanitizedPayload.password = await bcrypt.hash(sanitizedPayload.password, salt);
     }
-    await getRepository('User').update(id, payload);
+    if (Object.keys(sanitizedPayload).length === 0) {
+      return res.status(400).json({ error: 'لا توجد حقول صالحة للتحديث.' });
+    }
+    await getRepository('User').update(id, sanitizedPayload);
     const updated = await getRepository('User').findOneBy({ id });
     if (!updated) return res.status(404).json({ error: 'User not found' });
     const { password: _, ...userResponse } = updated;
