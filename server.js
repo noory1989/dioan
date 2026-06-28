@@ -454,9 +454,17 @@ const createEntityRoutes = (routeBase, entityName) => {
         return res.json(sanitizeRecord(updated));
       }
 
-      await getRepository(entityName).update(id, normalizePayload(req.body));
-      const updated = await getRepository(entityName).findOneBy({ id });
-      if (!updated) return res.status(404).json({ error: 'Record not found' });
+      const repo = getRepository(entityName);
+      const existing = await repo.findOneBy({ id });
+      if (!existing) return res.status(404).json({ error: 'Record not found' });
+      // Prevent updates to finished/locked records for sensitive entities
+      if (['Outgoing','Incoming','Reception'].includes(entityName)) {
+        const isFinished = existing.status === 'finished' || existing.status === 'منتهية' || existing.status === 'منتهي';
+        const isLocked = existing.lockedAt !== null && existing.lockedAt !== undefined;
+        if (isFinished || isLocked) return res.status(403).json({ error: 'هذا السجل مُنهى ولا يمكن تعديله' });
+      }
+      await repo.update(id, normalizePayload(req.body));
+      const updated = await repo.findOneBy({ id });
       res.json(sanitizeRecord(updated));
     } catch (error) {
       console.error(`Failed to update ${entityName}:`, error);
@@ -1101,6 +1109,114 @@ app.post('/api/circlemail/append-attachments-by-key', async (req, res) => {
     res.status(500).json({ error: 'Failed to append attachments' });
   }
 });
+
+// Lock a circle mail by composite key: set lockedAt = NOW() and mark status as finished
+app.post('/api/circlemail/lock-by-key', async (req, res) => {
+  if (!ensureDb(res)) return res.status(503).json({ error: 'Database is not initialized' });
+  try {
+    const { sourceEntity, sourceId, circleName, actor } = req.body || {};
+    if (!sourceEntity || (sourceId === undefined || sourceId === null) || !circleName) return res.status(400).json({ error: 'Missing identifying keys' });
+    const repo = getRepository('CircleMail');
+    const found = await repo.findOneBy({ sourceEntity, sourceId: Number(sourceId), circleName });
+    if (!found) return res.status(404).json({ error: 'Circle mail not found' });
+    // Only allow locking if not already finished/locked
+    if (found.status === 'finished' || found.status === 'منتهية') return res.status(400).json({ error: 'Already finished' });
+    const now = new Date();
+    await repo.update(found.id, { lockedAt: now, status: normalizeStatusValue('finished') });
+    // create history entry
+    try {
+      const hRepo = getRepository('History');
+      const h = hRepo.create({ circleMailId: found.id, actor: actor || 'system', action: 'finished', details: JSON.stringify({ lockedAt: now }) });
+      await hRepo.save(h);
+    } catch (e) { console.warn('Failed to save history for lock-by-key', e); }
+    const updated = await repo.findOneBy({ id: found.id });
+    res.json(updated);
+  } catch (err) {
+    console.error('Failed to lock circlemail by key:', err);
+    res.status(500).json({ error: 'Failed to lock circlemail' });
+  }
+});
+
+// Unlock (reopen) a circle mail by composite key — requires supervisor check (simplified: caller must be supervisor via actor 'مشرف' or 'مشرف عام')
+app.post('/api/circlemail/unlock-by-key', async (req, res) => {
+  if (!ensureDb(res)) return res.status(503).json({ error: 'Database is not initialized' });
+  try {
+    const { sourceEntity, sourceId, circleName, actor } = req.body || {};
+    if (!sourceEntity || (sourceId === undefined || sourceId === null) || !circleName) return res.status(400).json({ error: 'Missing identifying keys' });
+    // Simple role check: actor must be supervisor
+    if (!(actor && (String(actor) === 'مشرف' || String(actor) === 'مشرف عام' || String(actor).toLowerCase() === 'admin'))) {
+      return res.status(403).json({ error: 'Only supervisors can unlock a finished record' });
+    }
+    const repo = getRepository('CircleMail');
+    const found = await repo.findOneBy({ sourceEntity, sourceId: Number(sourceId), circleName });
+    if (!found) return res.status(404).json({ error: 'Circle mail not found' });
+    await repo.update(found.id, { lockedAt: null, status: normalizeStatusValue('open') });
+    try {
+      const hRepo = getRepository('History');
+      const h = hRepo.create({ circleMailId: found.id, actor: actor || 'system', action: 'reopened', details: JSON.stringify({ unlockedBy: actor }) });
+      await hRepo.save(h);
+    } catch (e) { console.warn('Failed to save history for unlock-by-key', e); }
+    const updated = await repo.findOneBy({ id: found.id });
+    res.json(updated);
+  } catch (err) {
+    console.error('Failed to unlock circlemail by key:', err);
+    res.status(500).json({ error: 'Failed to unlock circlemail' });
+  }
+});
+
+// Generic lock/unlock for Outgoing/Incoming/Reception by id
+const addLockRoutesFor = (routeBase, entityName) => {
+  app.post(`/api/${routeBase}/:id/lock`, async (req, res) => {
+    if (!ensureDb(res)) return res.status(503).json({ error: 'Database is not initialized' });
+    try {
+      const id = Number(req.params.id);
+      const actor = req.body && req.body.actor;
+      const repo = getRepository(entityName);
+      const found = await repo.findOneBy({ id });
+      if (!found) return res.status(404).json({ error: 'Record not found' });
+      if (found.status === 'finished' || found.status === 'منتهية') return res.status(400).json({ error: 'Already finished' });
+      const now = new Date();
+      await repo.update(id, { lockedAt: now, status: normalizeStatusValue('finished') });
+      try {
+        const h = getRepository('History').create({ actor: actor || 'system', action: 'finished', details: JSON.stringify({ entity: entityName, id, lockedAt: now }), sourceEntity: entityName, sourceId: id });
+        await getRepository('History').save(h);
+      } catch (e) { console.warn('Failed to save history for lock', e); }
+      const updated = await repo.findOneBy({ id });
+      res.json(updated);
+    } catch (err) {
+      console.error('Failed to lock record:', err);
+      res.status(500).json({ error: 'Failed to lock record' });
+    }
+  });
+
+  app.post(`/api/${routeBase}/:id/unlock`, async (req, res) => {
+    if (!ensureDb(res)) return res.status(503).json({ error: 'Database is not initialized' });
+    try {
+      const id = Number(req.params.id);
+      const actor = req.body && req.body.actor;
+      if (!(actor && (String(actor) === 'مشرف' || String(actor) === 'مشرف عام' || String(actor).toLowerCase() === 'admin'))) {
+        return res.status(403).json({ error: 'Only supervisors can unlock a finished record' });
+      }
+      const repo = getRepository(entityName);
+      const found = await repo.findOneBy({ id });
+      if (!found) return res.status(404).json({ error: 'Record not found' });
+      await repo.update(id, { lockedAt: null, status: normalizeStatusValue('open') });
+      try {
+        const h = getRepository('History').create({ actor: actor || 'system', action: 'reopened', details: JSON.stringify({ entity: entityName, id, unlockedBy: actor }), sourceEntity: entityName, sourceId: id });
+        await getRepository('History').save(h);
+      } catch (e) { console.warn('Failed to save history for unlock', e); }
+      const updated = await repo.findOneBy({ id });
+      res.json(updated);
+    } catch (err) {
+      console.error('Failed to unlock record:', err);
+      res.status(500).json({ error: 'Failed to unlock record' });
+    }
+  });
+};
+
+addLockRoutesFor('outgoing', 'Outgoing');
+addLockRoutesFor('incoming', 'Incoming');
+addLockRoutesFor('reception', 'Reception');
 
 // مسار مسح قاعدة البيانات بالكامل
 app.post('/api/system/clear-database', async (req, res) => {

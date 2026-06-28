@@ -109,6 +109,20 @@ module.exports = new EntitySchema({
       type: 'longtext',
       nullable: true,
     },
+    status: {
+      type: 'varchar',
+      length: 50,
+      nullable: true,
+      default: 'open',
+    },
+    isLocked: {
+      type: 'boolean',
+      default: false,
+    },
+    lockedAt: {
+      type: 'datetime',
+      nullable: true,
+    },
     createdAt: {
       type: 'datetime',
       createDate: true,

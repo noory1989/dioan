@@ -2203,23 +2203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     transferBtn.title = cm.status === 'finished' ? 'لا يمكن التحويل بعد إنهاء المعاملة' : '';
     transferBtn.addEventListener('click', () => showTransferModal(payload, cm.sourceEntity, cm.circleName, cm.sourceId));
     const canManageCircleMail = canManageSensitiveActions();
-    const finishBtn = document.createElement('button'); finishBtn.className = 'btn secondary'; finishBtn.textContent = cm.status === 'finished' ? 'تراجع عن الانتهاء' : 'انهاء المعاملة';
-    finishBtn.disabled = !canManageCircleMail;
-    finishBtn.title = getSensitiveActionTitle(canManageCircleMail);
-    finishBtn.addEventListener('click', async () => {
-      if (!canManageCircleMail) return;
-      try {
-        const newStatus = cm.status === 'finished' ? 'open' : 'finished';
-        // update by composite key
-        await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: newStatus } });
-        // record history by key
-        await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: newStatus === 'finished' ? 'finished' : 'reopened', actor: getCurrentActor() });
-        await loadCircleMails();
-        openCircleModal(cm.circleName);
-        alert('تم تحديث حالة المعاملة.');
-      } catch (err) { console.error(err); alert('خطأ عند تغيير حالة المعاملة'); }
-    });
-    actions.appendChild(timelineBtn); actions.appendChild(addNoteBtn); actions.appendChild(addAttachmentsBtn); actions.appendChild(transferBtn); actions.appendChild(finishBtn);
+    actions.appendChild(timelineBtn); actions.appendChild(addNoteBtn); actions.appendChild(addAttachmentsBtn); actions.appendChild(transferBtn);
     wrap.appendChild(actions);
 
     bodyList.appendChild(wrap);
@@ -2334,32 +2318,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     const timelineBtn = document.createElement('button'); timelineBtn.className='btn'; timelineBtn.textContent='عرض سير المعاملة'; timelineBtn.addEventListener('click', () => showTimelineByKey(cm));
     const canManageCircleMailDetails = canManageSensitiveActions();
-    const finishBtn = document.createElement('button'); finishBtn.className='btn secondary'; finishBtn.textContent = cm.status==='finished' ? 'تراجع عن الانتهاء' : 'انهاء المعاملة';
-    finishBtn.disabled = !canManageCircleMailDetails;
-    finishBtn.title = getSensitiveActionTitle(canManageCircleMailDetails);
-    finishBtn.addEventListener('click', async () => {
-      if (!canManageCircleMailDetails) return;
-      if (!confirm('تأكيد تغيير حالة المعاملة؟')) return;
-      try { const newStatus = cm.status==='finished' ? 'open' : 'finished'; await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: newStatus } }); await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: newStatus==='finished' ? 'finished' : 'reopened', actor: getCurrentActor() }); alert('تم تحديث الحالة'); await loadCircleMails(); } catch (e) { console.error(e); alert('فشل'); }
-    });
-    // explicit 'تراجع عن الانهاء' button (visible only when status is finished)
-    if (cm.status === 'finished') {
-      const unfinishBtn = document.createElement('button'); unfinishBtn.className = 'btn'; unfinishBtn.textContent = 'تراجع عن الانهاء';
-      unfinishBtn.disabled = !canManageCircleMailDetails;
-      unfinishBtn.title = getSensitiveActionTitle(canManageCircleMailDetails);
-      unfinishBtn.addEventListener('click', async () => {
-        if (!canManageCircleMailDetails) return;
-        if (!confirm('تأكيد تراجع عن الإنهاء؟')) return;
-        try {
-          await saveToServer('/api/circlemail/update-by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, updates: { status: 'open' } });
-          await saveToServer('/api/history/by-key', { sourceEntity: cm.sourceEntity, sourceId: cm.sourceId, circleName: cm.circleName, action: 'reopened', actor: getCurrentActor() });
-          await loadCircleMails();
-          alert('تم التراجع عن الإنهاء');
-        } catch (e) { console.error(e); alert('فشل التراجع'); }
-      });
-      actions.appendChild(unfinishBtn);
-    }
-    actions.appendChild(retransferBtn); actions.appendChild(rollbackBtn); actions.appendChild(timelineBtn); actions.appendChild(finishBtn);
+    actions.appendChild(retransferBtn); actions.appendChild(rollbackBtn); actions.appendChild(timelineBtn);
 
     bodyList.appendChild(topNoteWrap);
     bodyList.appendChild(main);
@@ -3438,10 +3397,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         <td>${it.newDate || '-'}</td>
         <td>${it.attachments ? (it.attachments.length) : 0}</td>
         <td class="actions">
-            <button class="btn" data-action="transfer">تحويل</button>
-            <button class="btn" data-action="view" ${it.attachments && it.attachments.length ? '' : 'disabled'}>عرض المرفقات</button>
-            <button class="btn" data-action="edit">تعديل</button>
-            <button class="btn" data-action="delete">حذف</button>
+          <button class="btn" data-action="transfer" ${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'disabled' : ''}>تحويل</button>
+          <button class="btn" data-action="view" ${it.attachments && it.attachments.length ? '' : 'disabled'}>عرض المرفقات</button>
+          <button class="btn" data-action="edit" ${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'disabled' : ''}>تعديل</button>
+          <button class="btn" data-action="finish">${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'تراجع عن الانتهاء' : 'انهاء'}</button>
+          <button class="btn" data-action="delete">حذف</button>
         </td>
       `;
       const checkbox = tr.querySelector('.row-select input[type="checkbox"]');
@@ -3480,6 +3440,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateForm(it);
       });
+      const finishBtn = tr.querySelector('[data-action="finish"]');
+      if (finishBtn) {
+        finishBtn.title = getSensitiveActionTitle(canManageOutgoing);
+        finishBtn.disabled = !canManageOutgoing;
+        finishBtn.addEventListener('click', async () => {
+          if (!canManageOutgoing) return;
+          try {
+            if (it.status && (it.status.includes('منتهية')||it.status==='finished')) {
+              // reopen
+              await saveToServer(`/api/outgoing/${it.id}/unlock`, { actor: getCurrentActor() });
+            } else {
+              await saveToServer(`/api/outgoing/${it.id}/lock`, { actor: getCurrentActor() });
+            }
+            await load();
+            render(searchInput.value);
+          } catch (e) { console.error('Finish outgoing failed', e); alert(e && e.message ? e.message : 'فشل عند تغيير حالة السجل'); }
+        });
+      }
       tr.querySelector('[data-action="view"]').addEventListener('click', () => {
         showAttachmentsModal(it.attachments || [], 'المرفقات للكتاب الصادر');
       });
@@ -3533,9 +3511,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         <td>${it.notes || '-'}</td>
         <td>${it.attachments ? (it.attachments.length) : 0}</td>
         <td class="actions">
-            <button class="btn" data-action="transfer">تحويل</button>
+            <button class="btn" data-action="transfer" ${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'disabled' : ''}>تحويل</button>
             <button class="btn" data-action="view" ${it.attachments && it.attachments.length ? '' : 'disabled'}>عرض المرفقات</button>
-            <button class="btn" data-action="edit">تعديل</button>
+            <button class="btn" data-action="edit" ${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'disabled' : ''}>تعديل</button>
+            <button class="btn" data-action="finish">${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'تراجع عن الانتهاء' : 'انهاء'}</button>
             <button class="btn" data-action="delete">حذف</button>
         </td>
       `;
@@ -3574,6 +3553,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateIncomingForm(it);
       });
+      const finishBtnIn = tr.querySelector('[data-action="finish"]');
+      if (finishBtnIn) {
+        finishBtnIn.title = getSensitiveActionTitle(canManageIncoming);
+        finishBtnIn.disabled = !canManageIncoming;
+        finishBtnIn.addEventListener('click', async () => {
+          if (!canManageIncoming) return;
+          try {
+            if (it.status && (it.status.includes('منتهية')||it.status==='finished')) {
+              await saveToServer(`/api/incoming/${it.id}/unlock`, { actor: getCurrentActor() });
+            } else {
+              await saveToServer(`/api/incoming/${it.id}/lock`, { actor: getCurrentActor() });
+            }
+            await loadIncoming();
+            renderIncoming(searchInputIncoming.value);
+          } catch (e) { console.error('Finish incoming failed', e); alert(e && e.message ? e.message : 'فشل عند تغيير حالة السجل'); }
+        });
+      }
       tr.querySelector('[data-action="view"]').addEventListener('click', () => {
         showAttachmentsModal(it.attachments || [], 'المرفقات للكتاب الوارد');
       });
@@ -3634,9 +3630,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         <td>${it.out3 || '-'}</td>
         <td>${it.attachments ? (it.attachments.length) : 0}</td>
         <td class="actions">
-            <button class="btn" data-action="transfer">تحويل</button>
+            <button class="btn" data-action="transfer" ${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'disabled' : ''}>تحويل</button>
             <button class="btn" data-action="view" ${it.attachments && it.attachments.length ? '' : 'disabled'}>عرض المرفقات</button>
-            <button class="btn" data-action="edit">تعديل</button>
+            <button class="btn" data-action="edit" ${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'disabled' : ''}>تعديل</button>
+            <button class="btn" data-action="finish">${it.status && (it.status.includes('منتهية')||it.status==='finished') ? 'تراجع عن الانتهاء' : 'انهاء'}</button>
             <button class="btn" data-action="delete">حذف</button>
         </td>
       `;
@@ -3675,6 +3672,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       tr.querySelector('[data-action="edit"]').addEventListener('click', () => {
         populateReceptionForm(it);
       });
+      const finishBtnR = tr.querySelector('[data-action="finish"]');
+      if (finishBtnR) {
+        finishBtnR.title = getSensitiveActionTitle(canManageReception);
+        finishBtnR.disabled = !canManageReception;
+        finishBtnR.addEventListener('click', async () => {
+          if (!canManageReception) return;
+          try {
+            if (it.status && (it.status.includes('منتهية')||it.status==='finished')) {
+              await saveToServer(`/api/reception/${it.id}/unlock`, { actor: getCurrentActor() });
+            } else {
+              await saveToServer(`/api/reception/${it.id}/lock`, { actor: getCurrentActor() });
+            }
+            await loadReception();
+            renderReception(searchInputReception.value);
+          } catch (e) { console.error('Finish reception failed', e); alert(e && e.message ? e.message : 'فشل عند تغيير حالة السجل'); }
+        });
+      }
       tr.querySelector('[data-action="view"]').addEventListener('click', () => {
         showAttachmentsModal(it.attachments || [], 'المرفقات للاستقبال والشكاوى');
       });
@@ -4124,10 +4138,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       const selected = (itemsArchive || []).filter(it => it._selected);
       if (!selected.length) return alert('لم يتم اختيار أي سجل لإنهائه.');
       if (!confirm(`هل تريد وضع حالة 'منتهية' على ${selected.length} سجل${selected.length>1?'اً':''}؟`)) return;
-      selected.forEach(it => { it.status = 'منتهية'; it._selected = false; });
-      saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
-      renderArchive(archiveSearchInput ? archiveSearchInput.value : '');
-      alert('تم وضع حالة الانتهاء على السجلات المحددة.');
+      // call server lock for each selected archive that has source keys
+      (async () => {
+        for (const it of selected) {
+          try {
+            if (it.sourceEntity && it.sourceId && it.circleName) {
+              await saveToServer('/api/circlemail/lock-by-key', { sourceEntity: it.sourceEntity, sourceId: it.sourceId, circleName: it.circleName, actor: getCurrentActor() });
+            } else if (it.id) {
+              // fallback: update archive entity status directly
+              await saveToServer(`/api/archive/${it.id}`, { status: 'منتهية' }, 'PUT');
+            } else {
+              it.status = 'منتهية';
+            }
+          } catch (e) {
+            console.warn('Failed to lock item', it.id || it.sourceId, e);
+            // mark locally as finished anyway to avoid blocking whole batch
+            it.status = 'منتهية';
+          }
+          it._selected = false;
+        }
+        // reload archive list from server/local backup
+        try { await loadArchive(); } catch (e) {}
+        saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
+        renderArchive(archiveSearchInput ? archiveSearchInput.value : '');
+        alert('تم وضع حالة الانتهاء على السجلات المحددة.');
+      })();
     });
   }
 
