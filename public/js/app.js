@@ -157,6 +157,105 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!prev) return;
     goToSnapshot(prev);
   };
+
+  const closeModalElement = (modal) => {
+    if (!modal) return;
+    const surface = modal.querySelector('.modal-window, .modal-content');
+    if (surface) {
+      surface.classList.remove('full-screen');
+      surface.classList.remove('modal-minimized-surface');
+      surface.style.position = '';
+      surface.style.top = '';
+      surface.style.left = '';
+      surface.style.right = '';
+      surface.style.bottom = '';
+      surface.style.width = '';
+      surface.style.height = '';
+      surface.style.margin = '';
+      surface.style.borderRadius = '';
+      surface.style.maxWidth = '';
+      surface.style.padding = '';
+      surface.style.display = '';
+      surface.style.flexDirection = '';
+    }
+    modal.classList.add('hidden');
+    modal.classList.remove('fullscreen-mode');
+    modal.classList.remove('modal-minimized');
+    modal.style.alignItems = '';
+    modal.style.justifyContent = '';
+    modal.style.position = '';
+  };
+
+  const ensureModalControls = (modal) => {
+    if (!modal) return;
+    const header = modal.querySelector('.modal-header');
+    if (!header || header.dataset.controlsInjected === 'true') return;
+    header.dataset.controlsInjected = 'true';
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-header-actions';
+
+    const createControl = (action, title, icon) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'modal-window-control';
+      btn.dataset.action = action;
+      btn.setAttribute('aria-label', title);
+      btn.title = title;
+      btn.innerHTML = icon;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        switch (action) {
+          case 'back':
+            goBack();
+            break;
+          case 'minimize':
+            modal.classList.toggle('modal-minimized');
+            const minimizedSurface = modal.querySelector('.modal-window, .modal-content');
+            if (minimizedSurface) minimizedSurface.classList.toggle('modal-minimized-surface');
+            modal.classList.remove('fullscreen-mode');
+            if (minimizedSurface) minimizedSurface.classList.remove('full-screen');
+            break;
+          case 'maximize': {
+            const surface = modal.querySelector('.modal-window, .modal-content');
+            const isMaximized = modal.classList.contains('fullscreen-mode') || (surface && surface.classList.contains('full-screen'));
+            modal.classList.remove('modal-minimized');
+            if (surface) surface.classList.remove('modal-minimized-surface');
+            if (isMaximized) {
+              if (surface) surface.classList.remove('full-screen');
+              modal.classList.remove('fullscreen-mode');
+              modal.style.alignItems = '';
+              modal.style.justifyContent = '';
+            } else {
+              if (surface) surface.classList.add('full-screen');
+              modal.classList.add('fullscreen-mode');
+              modal.style.alignItems = 'stretch';
+              modal.style.justifyContent = 'stretch';
+            }
+            break;
+          }
+          case 'close':
+          default:
+            closeModalElement(modal);
+            break;
+        }
+      });
+      return btn;
+    };
+
+    actions.appendChild(createControl('back', 'رجوع خطوة للخلف', '↺'));
+    actions.appendChild(createControl('minimize', 'تصغير', '—'));
+    actions.appendChild(createControl('maximize', 'تكبير', '▢'));
+    actions.appendChild(createControl('close', 'إغلاق', '✕'));
+    header.appendChild(actions);
+
+    header.querySelectorAll('button').forEach(btn => {
+      if (!btn.classList.contains('modal-window-control')) {
+        btn.style.display = 'none';
+      }
+    });
+  };
+
   const goHome = () => {
     navHistory.length = 0;
     // hide all tab contents and modals
@@ -168,6 +267,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (statsSection) statsSection.style.display = 'none';
     try { attachLocalBackToCurrentView(); } catch (e) {}
   };
+
+  document.querySelectorAll('.modal').forEach(ensureModalControls);
 
   // wire global nav buttons
   const backStepBtn = document.getElementById('backStepBtn');
