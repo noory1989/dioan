@@ -1027,6 +1027,18 @@ app.get('/api/history/by-key', async (req, res) => {
   }
 });
 
+// Get all histories (used by client to populate recent notes and top-note area)
+app.get('/api/history', async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: 'Database is not initialized' });
+  try {
+    const histories = await getRepository('History').find({ order: { createdAt: 'ASC' } });
+    res.json(histories);
+  } catch (err) {
+    console.error('Failed to fetch histories:', err);
+    res.status(500).json({ error: 'Failed to fetch histories' });
+  }
+});
+
 // Get attachments for a circlemail by composite key (internal attachments only)
 app.get('/api/circlemail/attachments-by-key', async (req, res) => {
   if (!dbReady) return res.status(503).json({ error: 'Database is not initialized' });

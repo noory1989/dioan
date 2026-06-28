@@ -2118,13 +2118,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     title.textContent = `المعاملة — ${cm.circleName || ''}`;
     bodyList.innerHTML = '';
 
-    // Top note area (show latest note if exists). Ensure histories are fresh.
+    // Top note area (show latest note if exists).
     const topNoteWrap = document.createElement('div'); topNoteWrap.style.marginBottom = '12px';
-    try { await loadHistories(); } catch (e) { /* ignore */ }
-    // البحث عن آخر ملاحظة مرتبطة بنفس المعاملة (sourceEntity + sourceId) بغض النظر عن الدائرة
-    const lastNote = (histories || []).slice() // Create a shallow copy before sorting
-      .filter(h => String(h.sourceEntity) === String(cm.sourceEntity) && String(h.sourceId) === String(cm.sourceId) && (h.action === 'note' || h.action === 'note_added'))
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    // Fetch histories for this specific composite key so we can reliably find notes
+    let lastNote = null;
+    try {
+      const q = `?sourceEntity=${encodeURIComponent(cm.sourceEntity||'')}&sourceId=${encodeURIComponent(cm.sourceId||'')}${cm.circleName ? `&circleName=${encodeURIComponent(cm.circleName)}` : ''}`;
+      const entries = await fetchJson(`${API_BASE}/history/by-key${q}`);
+      if (Array.isArray(entries) && entries.length) {
+        lastNote = entries.slice().filter(h => h && (h.action === 'note' || h.action === 'note_added')).sort((a,b)=> new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] || null;
+      }
+    } catch (e) { /* ignore */ }
     const noteEl = document.createElement('div'); noteEl.style.background='#fff7ed'; noteEl.style.padding='12px'; noteEl.style.borderRadius='8px'; noteEl.style.marginBottom='8px';
     noteEl.textContent = lastNote ? (`ملاحظة: ${lastNote.note || lastNote.action} — ${new Date(lastNote.createdAt).toLocaleString()}`) : 'لا توجد ملاحظات حالياً.';
     topNoteWrap.appendChild(noteEl);
