@@ -1,7 +1,7 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 require('reflect-metadata');
 const express = require('express');
-const path = require('path');
 const http = require('http');
 const fs = require('fs');
 const Busboy = require('busboy');
@@ -40,7 +40,8 @@ try {
 const { AppDataSource } = require('./src/data-source');
 const cron = require('node-cron');
 const app = express();
-const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+const PORT = Number(process.env.PORT || 3000);
 // Upload size limit in megabytes. Set to 0 for unlimited.
 const UPLOAD_MAX_MB = parseInt(process.env.UPLOAD_MAX_MB || '100', 10); // رفع الحد إلى 100 ميجا
 const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB > 0 ? UPLOAD_MAX_MB * 1024 * 1024 : null;
@@ -576,34 +577,122 @@ app.post('/api/trash/permanent-delete', async (req, res) => {
   }
 });
 
-// Custom controller: save a new dossier and initialize workflow fields
+// Custom controller: save a new dossier into the dedicated dossiers table
 app.post('/api/dossiers', async (req, res) => {
   if (!ensureDb(res)) return;
   try {
     const body = req.body || {};
-    const cmRepo = getRepository('CircleMail');
-    const workflowValues = buildCircleMailWorkflowValues(body);
+    const dossierRepo = getRepository('Dossier');
+
+    const payloadValue = body.payload
+      ? (typeof body.payload === 'string' ? body.payload : JSON.stringify(body.payload))
+      : JSON.stringify({});
+    const attachmentsValue = body.attachments
+      ? (typeof body.attachments === 'string' ? body.attachments : JSON.stringify(body.attachments))
+      : null;
+
+    const title = body.title || body.projectName || body.subject || null;
+    const projectName = body.projectName || body.title || body.subject || null;
+    const subject = body.subject || body.title || body.projectName || null;
 
     const toSave = {
+      title,
+      projectName,
+      subject,
       sourceEntity: body.sourceEntity || 'archive',
       sourceId: (body.sourceId !== undefined && body.sourceId !== null) ? Number(body.sourceId) : null,
       circleName: body.circleName || (body.circle_name || 'الأضابير'),
-      payload: body.payload ? (typeof body.payload === 'string' ? body.payload : JSON.stringify(body.payload)) : JSON.stringify({}),
-      attachments: body.attachments ? (typeof body.attachments === 'string' ? body.attachments : JSON.stringify(body.attachments)) : null,
+      payload: payloadValue,
+      attachments: attachmentsValue,
       status: normalizeStatusValue(body.status || 'open'),
-      alerted: body.alerted || false,
       currentDepartmentId: body.current_department_id || body.currentDepartmentId || null,
-      ...workflowValues,
-      lockedAt: null,
-      isTransferred: false,
+      isLocked: Boolean(body.isLocked ?? body.is_locked ?? false),
+      isTransferred: Boolean(body.isTransferred ?? body.is_transferred ?? false),
     };
 
-    const record = cmRepo.create(normalizePayload(toSave));
-    const saved = await cmRepo.save(record);
+    const record = dossierRepo.create(toSave);
+    const saved = await dossierRepo.save(record);
+    try {
+      const inserted = await AppDataSource.manager.query(
+        'INSERT INTO dossiers (title, projectName, subject, sourceEntity, sourceId, circleName, payload, attachments, status, currentDepartmentId, isLocked, isTransferred) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          saved.title || null,
+          saved.projectName || null,
+          saved.subject || null,
+          saved.sourceEntity || null,
+          saved.sourceId !== undefined && saved.sourceId !== null ? Number(saved.sourceId) : null,
+          saved.circleName || null,
+          saved.payload || null,
+          saved.attachments || null,
+          saved.status || 'قيد العمل',
+          saved.currentDepartmentId || null,
+          Boolean(saved.isLocked),
+          Boolean(saved.isTransferred),
+        ]
+      );
+      console.log('Direct dossier insert result:', inserted);
+    } catch (sqlErr) {
+      console.warn('Direct dossier insert failed:', sqlErr);
+    }
     return res.json(saved);
   } catch (error) {
     console.error('Failed to save dossier:', error);
     return res.status(500).json({ error: error && error.message ? error.message : 'Failed to save dossier' });
+  }
+});
+
+app.get('/api/dossiers', async (req, res) => {
+  if (!ensureDb(res)) return;
+  try {
+    const dossierRepo = getRepository('Dossier');
+    const rows = await dossierRepo.createQueryBuilder('dossier')
+      .where('dossier.deletedAt IS NULL')
+      .orderBy('dossier.id', 'DESC')
+      .getMany();
+    res.json(rows);
+  } catch (error) {
+    console.error('Failed to fetch dossiers:', error);
+    res.status(500).json({ error: 'Failed to fetch dossiers' });
+  }
+});
+
+app.put('/api/dossiers/:id', async (req, res) => {
+  if (!ensureDb(res)) return;
+  try {
+    const dossierRepo = getRepository('Dossier');
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid dossier id' });
+    const existing = await dossierRepo.findOneBy({ id });
+    if (!existing) return res.status(404).json({ error: 'Dossier not found' });
+
+    const body = req.body || {};
+    const payloadValue = body.payload
+      ? (typeof body.payload === 'string' ? body.payload : JSON.stringify(body.payload))
+      : existing.payload;
+    const attachmentsValue = body.attachments
+      ? (typeof body.attachments === 'string' ? body.attachments : JSON.stringify(body.attachments))
+      : existing.attachments;
+
+    const updates = {
+      title: body.title !== undefined ? body.title : existing.title,
+      projectName: body.projectName !== undefined ? body.projectName : existing.projectName,
+      subject: body.subject !== undefined ? body.subject : existing.subject,
+      sourceEntity: body.sourceEntity !== undefined ? body.sourceEntity : existing.sourceEntity,
+      sourceId: body.sourceId !== undefined ? (body.sourceId !== null ? Number(body.sourceId) : null) : existing.sourceId,
+      circleName: body.circleName !== undefined ? body.circleName : existing.circleName,
+      payload: payloadValue,
+      attachments: attachmentsValue,
+      status: body.status !== undefined ? body.status : existing.status,
+      currentDepartmentId: body.currentDepartmentId !== undefined ? body.currentDepartmentId : existing.currentDepartmentId,
+      isLocked: body.isLocked !== undefined ? Boolean(body.isLocked) : existing.isLocked,
+      isTransferred: body.isTransferred !== undefined ? Boolean(body.isTransferred) : existing.isTransferred,
+    };
+
+    const saved = await dossierRepo.save({ ...existing, ...updates });
+    res.json(saved);
+  } catch (error) {
+    console.error('Failed to update dossier:', error);
+    res.status(500).json({ error: 'Failed to update dossier' });
   }
 });
 
@@ -1447,20 +1536,13 @@ const startServer = async () => {
 
   const startListening = (port) => {
     const server = http.createServer(app);
-    server.listen(port);
+    server.listen(port, HOST);
     server.on('listening', () => {
-      console.log(`Server listening on http://localhost:${port}`);
+      console.log(`Server listening on http://${HOST}:${port}`);
     });
     server.on('error', (err) => {
-      if (err && err.code === 'EADDRINUSE') {
-        const nextPort = Number(port) + 1;
-        console.warn(`Port ${port} in use, trying ${nextPort}`);
-        // try next port
-        startListening(nextPort);
-      } else {
-        console.error('Server error:', err);
-        process.exit(1);
-      }
+      console.error('Server error:', err);
+      process.exit(1);
     });
   };
 

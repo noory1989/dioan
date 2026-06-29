@@ -804,10 +804,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const API_BASE = '/api';
 
-  // If the page is opened via file:// (offline), use a fallback origin for API calls
-  const DEFAULT_API_ORIGIN = (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:')
-    ? 'http://localhost:3000'
-    : (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost:3007');
+  // Resolve the API origin robustly so requests still work when the app is opened from file://,
+  // from a different host/port, or from another device on the network.
+  const getConfiguredApiOrigins = () => {
+    const origins = [];
+    const addOrigin = (value) => {
+      if (!value) return;
+      const normalized = String(value).trim().replace(/\/$/, '');
+      if (normalized && !origins.includes(normalized)) origins.push(normalized);
+    };
+
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        if (window.location.origin) addOrigin(window.location.origin);
+        if (window.location.hostname) {
+          const port = window.location.port || '3016';
+          addOrigin(`http://${window.location.hostname}:${port}`);
+          addOrigin(`http://127.0.0.1:${port}`);
+          addOrigin(`http://localhost:${port}`);
+        }
+      }
+    } catch (e) {}
+
+    const envPort = (typeof window !== 'undefined' && window.__DIWAN_API_PORT__) ? String(window.__DIWAN_API_PORT__) : '';
+    [3016, 3000, 3001, 8080, 8081].forEach((port) => {
+      addOrigin(`http://127.0.0.1:${port}`);
+      addOrigin(`http://localhost:${port}`);
+    });
+    if (envPort) {
+      addOrigin(`http://127.0.0.1:${envPort}`);
+      addOrigin(`http://localhost:${envPort}`);
+    }
+    addOrigin('http://127.0.0.1:3016');
+    addOrigin('http://localhost:3016');
+    addOrigin('http://127.0.0.1:3000');
+    addOrigin('http://localhost:3000');
+    return origins;
+  };
+
+  const DEFAULT_API_ORIGINS = getConfiguredApiOrigins();
 
   const parseAttachments = (attachments) => {
     if (Array.isArray(attachments)) return attachments;
@@ -866,35 +901,56 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (e) {}
       return u.replace(/\/\/{2,}/g, '/');
     };
-    let safeUrl = normalizeUrl(url);
-    // ensure relative paths are resolved to a proper origin (fixes "Failed to fetch" when page served from file://)
-    try {
-      if (safeUrl && safeUrl.startsWith('/') && !safeUrl.startsWith('//') && !(safeUrl.startsWith('http://') || safeUrl.startsWith('https://'))) {
-        safeUrl = DEFAULT_API_ORIGIN.replace(/\/$/, '') + safeUrl;
+
+    const buildCandidateUrls = (inputUrl) => {
+      const candidates = [];
+      const add = (value) => {
+        if (!value) return;
+        const normalized = normalizeUrl(value);
+        if (!candidates.includes(normalized)) candidates.push(normalized);
+      };
+      const safeUrl = normalizeUrl(inputUrl);
+      add(safeUrl);
+      if (safeUrl && safeUrl.startsWith('/') && !safeUrl.startsWith('//')) {
+        DEFAULT_API_ORIGINS.forEach((origin) => add(origin + safeUrl));
       }
-    } catch (e) {}
-    const response = await fetch(safeUrl, {
-      headers: { 'Content-Type': 'application/json' },
-      ...options,
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      // try parse JSON error
+      if (safeUrl && !safeUrl.startsWith('http://') && !safeUrl.startsWith('https://')) {
+        DEFAULT_API_ORIGINS.forEach((origin) => add(origin + '/' + safeUrl.replace(/^\//, '')));
+      }
+      return candidates;
+    };
+
+    const candidateUrls = buildCandidateUrls(url);
+    let lastError = null;
+
+    for (const candidateUrl of candidateUrls) {
       try {
-        const parsed = JSON.parse(text);
-        const msg = parsed && parsed.error ? parsed.error : JSON.stringify(parsed);
-        throw new Error(msg || response.statusText || `HTTP ${response.status}`);
-      } catch (e) {
-        // not JSON, return trimmed text (strip HTML tags if present)
-        const stripped = text.replace(/<[^>]*>/g, '').trim();
-        throw new Error(stripped || response.statusText || `HTTP ${response.status}`);
+        const response = await fetch(candidateUrl, {
+          headers: { 'Content-Type': 'application/json' },
+          ...options,
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          // try parse JSON error
+          try {
+            const parsed = JSON.parse(text);
+            const msg = parsed && parsed.error ? parsed.error : JSON.stringify(parsed);
+            throw new Error(msg || response.statusText || `HTTP ${response.status}`);
+          } catch (e) {
+            const stripped = text.replace(/<[^>]*>/g, '').trim();
+            throw new Error(stripped || response.statusText || `HTTP ${response.status}`);
+          }
+        }
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) return response.json();
+        const txt = await response.text();
+        try { return JSON.parse(txt); } catch (e) { return txt; }
+      } catch (err) {
+        lastError = err;
       }
     }
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) return response.json();
-    // fallback: try to parse text as JSON, else return text
-    const txt = await response.text();
-    try { return JSON.parse(txt); } catch (e) { return txt; }
+
+    throw lastError || new Error('Failed to reach the server');
   };
 
   const localSeedOutgoing = [
@@ -1110,9 +1166,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const loadArchive = async () => {
     try {
-      // try server if available
-      const data = await fetchJson(`${API_BASE}/archive`);
-      itemsArchive = data.map(item => ({ ...item, attachments: parseAttachments(item.attachments) }));
+      const data = await fetchJson(`${API_BASE}/dossiers`);
+      itemsArchive = data.map(item => ({
+        ...item,
+        payload: typeof item.payload === 'string' ? (() => {
+          try { return JSON.parse(item.payload); } catch (e) { return item.payload; }
+        })() : item.payload,
+        attachments: parseAttachments(item.attachments),
+        _serverSynced: true,
+      }));
+      saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
     } catch (error) {
       console.warn('Load archive failed or API not available:', error);
       itemsArchive = useLocalBackupIfEmpty([], LOCAL_STORAGE_KEYS.archive, []);
@@ -1120,6 +1183,57 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   const loadCircleMails = async () => {
+
+  // Merge CircleMail dossier transfers into the global archive list so dossiers
+  // created via transfers are visible in the main/system archive view.
+  const mergeCircleDossiersIntoArchive = () => {
+    try {
+      if (!Array.isArray(itemsCircleMail)) return;
+      const existingIds = new Set((itemsArchive || []).map(it => String(it.id)));
+      const toAdd = [];
+      for (const cm of itemsCircleMail) {
+        try {
+          // determine if this circle mail represents a dossier
+          let isDossier = false;
+          if (cm.recordCategory) isDossier = String(cm.recordCategory).toUpperCase() === 'DOSSIER';
+          else if (cm.recordType) isDossier = String(cm.recordType).toUpperCase().includes('DOSSIER') || String(cm.recordType).includes('اضاب');
+          else {
+            const p = cm.payload ? (typeof cm.payload === 'string' ? JSON.parse(cm.payload) : cm.payload) : {};
+            if (p && (p.recordCategory || p.record_type || p.recordType)) {
+              const v = (p.recordCategory || p.record_type || p.recordType) || '';
+              isDossier = String(v).toLowerCase().includes('اضاب') || String(v).toLowerCase().includes('dossier');
+            }
+          }
+          if (!isDossier) {
+            // also consider archive sourceEntity as dossier
+            if (cm.sourceEntity && String(cm.sourceEntity).toLowerCase().includes('archive')) isDossier = true;
+          }
+          if (!isDossier) continue;
+
+          // Build a lightweight archive-like object from the circle mail for display
+          const parsed = cm.payload ? (typeof cm.payload === 'string' ? JSON.parse(cm.payload) : cm.payload) : {};
+          const archiveId = (cm.sourceId !== undefined && cm.sourceId !== null) ? cm.sourceId : (`cm-${cm.id}`);
+          if (existingIds.has(String(archiveId))) continue;
+          const subject = parsed.subject || parsed.title || parsed.projectName || parsed.name || '-';
+          const projectName = parsed.projectName || parsed.title || parsed.subject || '-';
+          const attachments = (cm.attachments && Array.isArray(cm.attachments)) ? cm.attachments : (cm.attachments ? (typeof cm.attachments === 'string' ? JSON.parse(cm.attachments) : cm.attachments) : []);
+          toAdd.push({
+            id: archiveId,
+            projectName,
+            subject,
+            attachments,
+            createdAt: cm.createdAt || cm.updatedAt || new Date().toISOString(),
+            _fromCircleMail: true,
+            circleMailId: cm.id,
+          });
+        } catch (e) { /* ignore malformed payload rows */ }
+      }
+      if (toAdd.length) {
+        // prepend so newest appear first
+        itemsArchive = toAdd.concat(itemsArchive || []);
+      }
+    } catch (e) { console.warn('mergeCircleDossiersIntoArchive failed', e); }
+  };
     try {
       const data = await fetchJson(`${API_BASE}/circlemail`);
       itemsCircleMail = data.map(cm => ({ ...cm, attachments: parseAttachments(cm.attachments) }));
@@ -5039,35 +5153,47 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!hasDuration) { alert('يجب إدخال قيمة واحدة على الأقل لحقل المدة الزمنية قبل حفظ الأضبارة.'); return; }
       try {
         const editingId = formEl.dataset.editingId;
-        if (editingId) {
-          // For edits: set per-section savedAt when that section is being filled for the first time
-          try {
-            const existing = itemsArchive.find(it => it.id === Number(editingId));
-            const nowIso = new Date().toISOString();
-            ['studies','tech','gov','legal','gov2'].forEach(sec => {
-              const val = payload[sec] && payload[sec].expected && String(payload[sec].expected.value || '').trim();
-              if (val) {
-                if (!existing || !(existing[sec] && existing[sec].savedAt)) {
-                  payload[sec] = payload[sec] || {};
-                  payload[sec].savedAt = nowIso;
-                }
-              }
-            });
-          } catch (e) {}
-          itemsArchive = itemsArchive.map(it => it.id === Number(editingId) ? ({ ...it, ...payload, attachments: payload.attachments }) : it);
-          // ensure edit button is enabled for saved record
-          const editBtn = document.getElementById('editArchiveBtn'); if (editBtn) editBtn.disabled = false;
-          // Apply duration lock timers based on updated record's per-section savedAt
-          try {
-            const updated = itemsArchive.find(it => it.id === Number(editingId));
-            if (updated) enforceDurationLockForForm(formEl, updated);
-          } catch (e) {}
-        } else {
-          const id = Date.now();
+        const serverPayload = {
+          title: payload.projectName || payload.subject || 'أضابرة',
+          projectName: payload.projectName || payload.subject || '',
+          subject: payload.subject || payload.projectName || '',
+          sourceEntity: 'archive',
+          circleName: 'الأضابير',
+          payload,
+          attachments: attachmentsStore,
+          status: payload.status,
+        };
+
+        const existing = editingId ? itemsArchive.find(it => String(it.id) === String(editingId)) : null;
+        const isLocalOnly = existing && existing._localOnly;
+        let record = null;
+        let serverSaved = null;
+
+        try {
+          if (editingId && existing && !isLocalOnly) {
+            serverSaved = await saveToServer(`/api/dossiers/${editingId}`, serverPayload, 'PUT');
+          } else {
+            serverSaved = await saveToServer('/api/dossiers', serverPayload, 'POST');
+          }
+        } catch (serverError) {
+          console.warn('Archive save to server failed, using local fallback:', serverError);
+        }
+
+        if (serverSaved && typeof serverSaved === 'object') {
+          record = {
+            ...serverSaved,
+            payload: typeof serverSaved.payload === 'string' ? (() => {
+              try { return JSON.parse(serverSaved.payload); } catch (e) { return serverSaved.payload; }
+            })() : serverSaved.payload,
+            attachments: parseAttachments(serverSaved.attachments),
+            _serverSynced: true,
+          };
+        }
+
+        if (!record) {
+          const id = editingId ? Number(editingId) : Date.now();
           const savedAt = new Date().toISOString();
-          // ensure createDate is set to saved date if empty
           if (!payload.createDate) payload.createDate = savedAt.slice(0,10);
-          // For creation: set per-section savedAt for any section that has an expected value
           try {
             ['studies','tech','gov','legal','gov2'].forEach(sec => {
               const val = payload[sec] && payload[sec].expected && String(payload[sec].expected.value || '').trim();
@@ -5077,25 +5203,28 @@ document.addEventListener('DOMContentLoaded', async () => {
               }
             });
           } catch (e) {}
-          const record = { id, ...payload, attachments: payload.attachments, savedAt };
-          itemsArchive.unshift(record);
-          // mark the form as editing this newly created record
-          formEl.dataset.editingId = id;
-          // set duration lock timer for this newly saved record (pass full record so per-section savedAt is used)
-          enforceDurationLockForForm(formEl, record);
-          // mark the form as editing this newly created record
-          const editBtn = document.getElementById('editArchiveBtn'); if (editBtn) editBtn.disabled = false;
+          record = { id, ...payload, attachments: payload.attachments, savedAt, _localOnly: true };
         }
+
+        const existingIndex = existing ? itemsArchive.findIndex(it => String(it.id) === String(existing.id)) : -1;
+        if (existingIndex >= 0) {
+          itemsArchive[existingIndex] = { ...itemsArchive[existingIndex], ...record };
+        } else {
+          itemsArchive.unshift(record);
+        }
+
+        formEl.dataset.editingId = record.id;
+        const editBtn = document.getElementById('editArchiveBtn'); if (editBtn) editBtn.disabled = false;
+        try { enforceDurationLockForForm(formEl, record); } catch (e) {}
+
         try { syncArchiveStatuses(); } catch (e) {}
         saveLocalBackup(LOCAL_STORAGE_KEYS.archive, itemsArchive);
         renderArchive();
         updateDashboardStats();
         try { if (archivesLateView && archivesLateView.style.display !== 'none') renderArchiveLate(); } catch (e) {}
-        // after save: display the archives list view only
         const view = document.getElementById('archiveNewView'); if (view) view.style.display = 'none';
         const cards = document.querySelector('.archives-cards'); if (cards) cards.style.display = 'none';
         const listView = document.getElementById('archivesListView'); if (listView) listView.style.display = '';
-        // ensure archive tab is visible (if tabs logic exists, mimic selecting it)
         try { const archiveTab = document.querySelector('.tab[data-view="archives"]'); if (archiveTab) archiveTab.classList.add('active'); } catch (e) {}
       } catch (err) {
         console.error('Archive save failed', err);
@@ -5714,6 +5843,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Load data and initialize UI
         (async () => {
           await Promise.all([load(), loadIncoming(), loadReception(), loadCircleMails(), loadArchive(), loadHistories(), loadTrash(), loadUsers()]);
+          try { mergeCircleDossiersIntoArchive(); } catch (e) { console.warn('mergeCircleDossiersIntoArchive initial call failed', e); }
           applyPermissions(); render(); renderIncoming(); renderReception(); renderArchive(); renderCircles(); renderTrash(); updateDashboardStats();
           try { await checkDelays(); } catch(e){}
           setInterval(checkDelays, 60 * 60 * 1000);
